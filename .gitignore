@@ -1,0 +1,30 @@
+# Secrets / Config
+includes/config.php
+.env
+.env.*
+
+# Logs
+*.log
+
+# Backups / Dumps
+*.bak
+*.sql.gz
+*.sqlite
+
+# Uploads (Laufzeit-generiert)
+uploads/
+cache/
+tmp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Dependencies (falls später composer/npm dazukommt)
+vendor/
+node_modules/

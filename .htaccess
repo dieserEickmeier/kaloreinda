@@ -1,0 +1,13 @@
+# ── KalorienTracker – Apache Sicherheit ──────────────────────────────────────
+
+# Directory Listing verhindern
+Options -Indexes
+
+# manage_users.php sperren
+<Files "manage_users.php">
+    Require all denied
+</Files>
+
+# Security Header
+Header always set X-Frame-Options "DENY"
+Header always set X-Content-Type-Options "nosniff"

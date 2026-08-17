@@ -1,0 +1,841 @@
+/* ── Reset & Base ────────────────────────────────────────────── */
+:root {
+    --bg:          #0f1117;
+    --surface:     #1a1d27;
+    --surface2:    #222534;
+    --border:      rgba(255,255,255,.08);
+    --accent:      #4ade80;
+    --accent-dim:  #16a34a;
+    --warn:        #fb923c;
+    --danger:      #f87171;
+    --text:        #e8eaf0;
+    --muted:       #7c7f8e;
+    --nav-h:       60px;
+    --safe-top:    env(safe-area-inset-top,    0px);
+    --safe-bottom: env(safe-area-inset-bottom, 34px);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+    background: var(--bg);
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 16px;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+    padding-top: var(--safe-top);
+    padding-bottom: calc(var(--nav-h) + var(--safe-bottom));
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+}
+
+#app {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 0 0 1rem;
+    min-height: calc(100vh - var(--safe-top) - var(--nav-h) - var(--safe-bottom));
+}
+
+/* ── Statusleisten-Abdeckung ─────────────────────────────────── */
+/* Fixiert (nicht sticky!) und deckt permanent die Safe-Area-Zone oben ab,
+   damit hochscrollender Inhalt nicht hinter der transparenten iOS-
+   Statusleiste durchscheint. z-index höher als normaler Content, aber
+   niedriger als .page-header ist hier nicht nötig, da sich die beiden
+   Bereiche (0 bis safe-top, und ab safe-top) nicht überlappen. */
+.status-bar-cover {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--safe-top);
+    background: var(--bg);
+    z-index: 150;
+    pointer-events: none;
+}
+
+/* ── Page Header ─────────────────────────────────────────────── */
+.page-header {
+    position: sticky;
+    /* WICHTIG: top:0 statt var(--safe-top) – das body-padding-top schiebt
+       den Header zwar beim ersten Laden korrekt unter die Statusleiste,
+       aber sobald gescrollt wird, "klebt" ein sticky-Element relativ zum
+       Viewport bei seinem top-Wert, NICHT relativ zum body-Padding. Mit
+       top:0 rutschte der Header beim Scrollen zurück hinter die transparente
+       iOS-Statusleiste (apple-mobile-web-app-status-bar-style: black-
+       translucent legt die Statusleiste ja bewusst über den Seiteninhalt).
+       Mit top:var(--safe-top) bleibt der Sticky-Punkt immer unterhalb der
+       Statusleiste, unabhängig vom Scroll-Zustand. */
+    top: var(--safe-top);
+    z-index: 100;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 1.25rem .75rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+}
+.page-header h1 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 0;
+    flex: 1;
+    letter-spacing: -.01em;
+}
+.page-header .date-badge {
+    font-size: .78rem;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+/* ── Bottom Navigation ───────────────────────────────────────── */
+/* Hintergrund läuft volle Breite bis zum Rand */
+.bottom-nav-bg {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: calc(var(--nav-h) + var(--safe-bottom));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 199;
+}
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    height: var(--nav-h);
+    margin-bottom: var(--safe-bottom);
+    display: flex;
+    z-index: 200;
+}
+.bottom-nav__item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .2rem;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: .68rem;
+    font-weight: 500;
+    transition: color .15s;
+    padding: .5rem 0;
+}
+.bottom-nav__item i { font-size: 1.4rem; line-height: 1; }
+.bottom-nav__item.active { color: var(--accent); }
+.bottom-nav__item:active { opacity: .7; }
+
+/* ── Cards ───────────────────────────────────────────────────── */
+.kt-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1rem 1.25rem;
+    margin: 0 1rem .75rem;
+    position: relative;
+}
+
+/* ── Kalorienzähler (Donut + Zahl) ──────────────────────────── */
+.kcal-ring-wrap {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1.25rem 1.25rem;
+    margin: .75rem 1rem 0;
+    background: var(--surface);
+    border-radius: 20px;
+    border: 1px solid var(--border);
+}
+.kcal-ring { position: relative; width: 96px; height: 96px; flex-shrink: 0; }
+.kcal-ring svg { transform: rotate(-90deg); }
+.kcal-ring__track { fill: none; stroke: var(--surface2); stroke-width: 9; }
+.kcal-ring__bar   { fill: none; stroke: var(--accent);   stroke-width: 9;
+                     stroke-linecap: round;
+                     transition: stroke-dashoffset .6s cubic-bezier(.4,0,.2,1); }
+.kcal-ring__bar.warn   { stroke: var(--warn); }
+.kcal-ring__bar.danger { stroke: var(--danger); }
+.kcal-ring__center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+}
+.kcal-ring__num  { font-size: 1.4rem; font-weight: 800; line-height: 1; }
+.kcal-ring__unit { font-size: .65rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+.kcal-stats { flex: 1; display: flex; flex-direction: column; gap: .4rem; }
+.kcal-stat-row { display: flex; justify-content: space-between; align-items: baseline; }
+.kcal-stat-label { font-size: .8rem; color: var(--muted); }
+.kcal-stat-val   { font-size: .95rem; font-weight: 600; }
+.kcal-remaining  { font-size: 1.05rem; font-weight: 700; color: var(--accent); }
+.kcal-remaining.warn   { color: var(--warn); }
+.kcal-remaining.danger { color: var(--danger); }
+
+/* ── Makro-Balken ────────────────────────────────────────────── */
+.macro-bars { margin: 0 1rem .75rem; }
+.macro-bar-row { display: flex; align-items: center; gap: .6rem; margin-bottom: .5rem; }
+.macro-bar-label { font-size: .75rem; color: var(--muted); width: 56px; flex-shrink: 0; }
+.macro-bar-track { flex: 1; height: 6px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
+.macro-bar-fill  { height: 100%; border-radius: 99px; transition: width .5s; }
+.macro-bar-val   { font-size: .75rem; font-weight: 600; width: 44px; text-align: right; flex-shrink: 0; }
+.bar-eiweiss { background: #60a5fa; }
+.bar-fett    { background: var(--warn); }
+.bar-kh      { background: #a78bfa; }
+
+/* ── Mahlzeit-Sektionen ──────────────────────────────────────── */
+.meal-section { margin: 0 0 .5rem; }
+.meal-header {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .6rem 1.25rem;
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .07em;
+}
+.meal-header .meal-kcal { margin-left: auto; color: var(--text); font-weight: 700; }
+
+.entry-item {
+    display: flex; align-items: center; gap: .75rem;
+    padding: .7rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    transition: background .12s;
+}
+.entry-item:first-of-type { border-top: 1px solid var(--border); }
+.entry-item:active { background: var(--surface2); }
+.entry-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: var(--surface2); display: flex; align-items: center;
+    justify-content: center; font-size: 1.1rem; flex-shrink: 0;
+}
+.entry-name  { font-size: .9rem; font-weight: 600; line-height: 1.2; }
+.entry-meta  { font-size: .75rem; color: var(--muted); }
+.entry-kcal  { margin-left: auto; font-size: 1rem; font-weight: 700; flex-shrink: 0; }
+.entry-delete { color: var(--danger); background: none; border: none; padding: .25rem .4rem;
+                font-size: 1.1rem; opacity: .5; flex-shrink: 0; }
+.entry-delete:active { opacity: 1; }
+
+/* ── Scanner ────────────────────────────────────────────────── */
+.scanner-wrap {
+    position: relative;
+    margin: 1rem;
+    border-radius: 20px;
+    overflow: hidden;
+    background: #000;
+}
+#video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scanner-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+}
+.scanner-frame {
+    width: 65%; aspect-ratio: 1;
+    border: 2.5px solid var(--accent);
+    border-radius: 12px;
+    box-shadow: 0 0 0 2000px rgba(0,0,0,.5);
+}
+.scanner-laser {
+    position: absolute;
+    top: 50%; left: 17.5%;
+    width: 65%; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: laser 2s ease-in-out infinite;
+    border-radius: 2px;
+}
+@keyframes laser { 0%,100% { opacity: .3; transform: scaleY(1); }
+                   50%       { opacity: 1;  transform: scaleY(1.5); } }
+
+.scan-btn {
+    display: block; width: calc(100% - 2rem);
+    margin: .75rem 1rem; padding: 1rem;
+    background: var(--accent); color: #000;
+    border: none; border-radius: 14px;
+    font-size: 1rem; font-weight: 700;
+    text-align: center; cursor: pointer;
+    transition: opacity .15s, transform .1s;
+}
+.scan-btn:active { opacity: .85; transform: scale(.98); }
+.scan-btn.secondary {
+    background: var(--surface2); color: var(--text);
+}
+.scan-btn i { margin-right: .4rem; }
+/* Vertikale Button-Variante (Icon über Text) */
+.scan-btn.vertical {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+.scan-btn.vertical i { margin-right: 0; margin-bottom: .2rem; }
+
+/* ── Produkt-Eintragen-Modal ─────────────────────────────────── */
+.product-found {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 400;
+    background: rgba(0,0,0,.7);
+    backdrop-filter: blur(4px);
+    align-items: flex-end;
+    justify-content: center;
+}
+.product-found.visible { display: flex; }
+@media (min-width: 560px) {
+    .product-found { align-items: center; padding: 1.25rem; }
+}
+
+.pf-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-top: 1px solid rgba(74,222,128,.35);
+    border-radius: 24px 24px 0 0;
+    width: 100%;
+    max-width: 480px;
+    max-height: 92vh;
+    overflow-y: auto;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    animation: pfSlideUp .28s cubic-bezier(.22,1,.36,1);
+}
+@media (min-width: 560px) {
+    .pf-card { border-radius: 24px; animation: pfPop .22s cubic-bezier(.34,1.56,.64,1); }
+}
+@keyframes pfSlideUp { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes pfPop      { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+.pf-head {
+    display: flex; align-items: center; gap: .7rem;
+    padding: 1.1rem 1.1rem .9rem;
+}
+.pf-head__icon {
+    width: 2.1rem; height: 2.1rem; border-radius: 50%;
+    background: rgba(74,222,128,.15); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.05rem; flex-shrink: 0;
+}
+.pf-head__text { flex: 1; min-width: 0; }
+#pfName {
+    font-weight: 800; font-size: 1.02rem; line-height: 1.25;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#pfSrc { font-size: .72rem; color: var(--muted); margin-top: 1px; }
+.pf-close {
+    width: 1.9rem; height: 1.9rem; border-radius: 50%; flex-shrink: 0;
+    background: var(--surface2); border: none; color: var(--muted);
+    display: flex; align-items: center; justify-content: center; font-size: .8rem;
+}
+
+.pf-kcal {
+    text-align: center; padding: .15rem 1rem .9rem;
+    display: flex; align-items: baseline; justify-content: center; gap: .4rem;
+}
+.pf-kcal__num {
+    font-size: 2.9rem; font-weight: 800; color: var(--accent);
+    line-height: 1; letter-spacing: -.02em;
+    transition: color .15s;
+}
+.pf-kcal__unit { font-size: 1rem; font-weight: 700; color: var(--muted); }
+
+.pf-macros {
+    display: flex; justify-content: center;
+    gap: 1.4rem; padding: 0 1.1rem; margin-bottom: .2rem;
+}
+.pf-macro { display: flex; flex-direction: column; align-items: center; gap: .3rem; }
+.pf-macro__ring {
+    width: 3rem; height: 3rem;
+    border-radius: 50%;
+    border: 2.5px solid var(--c);
+    background: color-mix(in srgb, var(--c) 10%, transparent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: .72rem; font-weight: 800; color: var(--text);
+}
+.pf-macro__lab { font-size: .65rem; color: var(--muted); font-weight: 600; }
+.pf-macros__hint {
+    text-align: center; font-size: .68rem; color: var(--muted);
+    padding: .3rem 1rem .9rem;
+}
+
+.pf-portion-wrap {
+    display: none; gap: .5rem; padding: 0 1.1rem .9rem;
+    align-items: center; flex-wrap: wrap;
+}
+.pf-portion-input {
+    display: none; width: 100%; margin-top: .35rem;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: .5rem .75rem; color: var(--text); font-size: .9rem;
+}
+
+.pf-menge {
+    display: flex; align-items: stretch; gap: .55rem;
+    padding: 0 1.1rem .7rem;
+}
+.pf-stepper {
+    width: 3rem; flex-shrink: 0;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 14px; color: var(--text); font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+}
+.pf-stepper:active { background: var(--border); }
+.pf-menge__field {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: .4rem;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 14px; padding: 0 .5rem;
+}
+.pf-menge__field input {
+    background: transparent; border: none; color: var(--text);
+    font-size: 1.3rem; font-weight: 800; text-align: center;
+    width: 100%; padding: .5rem 0;
+}
+.pf-menge__field input:focus { outline: none; }
+.pf-menge__field span { font-size: .85rem; color: var(--muted); font-weight: 600; }
+
+.pf-chips {
+    display: flex; gap: .4rem; padding: 0 1.1rem 1.1rem;
+    justify-content: center; flex-wrap: wrap;
+    overflow-x: auto; scrollbar-width: none;
+}
+.pf-chips::-webkit-scrollbar { display: none; }
+.pf-chip {
+    flex-shrink: 0; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 99px; padding: .35rem .85rem; color: var(--muted);
+    font-size: .8rem; font-weight: 700; -webkit-tap-highlight-color: transparent;
+}
+.pf-chip.active { background: rgba(74,222,128,.15); border-color: var(--accent); color: var(--accent); }
+
+.pf-actions {
+    padding: .2rem 1.1rem 1.1rem; display: flex; flex-direction: column; gap: .5rem;
+}
+
+/* Legacy-Aliase (von anderen Seiten evtl. noch referenziert) */
+.macro-chip, .macro-box { background: var(--surface2); border-radius: 10px; padding: .5rem .25rem; text-align: center; }
+.macro-chip__val, .macro-box > span:first-child  { font-size: 1.05rem; font-weight: 700; display: block; }
+.macro-chip__lab, .macro-label  { font-size: .65rem; color: var(--muted); }
+.menge-input {
+    flex: 1; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); font-size: 1rem; padding: .5rem .75rem;
+    text-align: right;
+}
+.menge-unit { font-size: .85rem; color: var(--muted); }
+
+/* ── Vision Upload ───────────────────────────────────────────── */
+.vision-area {
+    margin: 0 1rem 1rem;
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    padding: 2rem 1rem;
+    text-align: center;
+    display: none;
+}
+.vision-area.visible { display: block; }
+.vision-area i { font-size: 2.5rem; color: var(--muted); margin-bottom: .5rem; }
+#imgPreview { max-width: 100%; border-radius: 10px; margin-top: 1rem; display: none; }
+
+/* ── Manuelles Formular ─────────────────────────────────────── */
+.kt-form { margin: 0 1rem; }
+.kt-form .form-label { font-size: .82rem; color: var(--muted); margin-bottom: .25rem; }
+.kt-form .form-control, .kt-form .form-select {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); border-radius: 12px; padding: .65rem .9rem;
+}
+.kt-form .form-control:focus, .kt-form .form-select:focus {
+    background: var(--surface2); border-color: var(--accent);
+    color: var(--text); box-shadow: 0 0 0 3px rgba(74,222,128,.15);
+}
+.kt-form .form-select option { background: var(--surface2); }
+
+/* ── Verlauf ────────────────────────────────────────────────── */
+.history-day {
+    margin-bottom: 1rem;
+}
+.history-day__header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: .5rem 1.25rem;
+    font-size: .82rem; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: .06em;
+}
+.history-day__kcal { color: var(--accent); font-size: .9rem; }
+
+/* ── Utilities ───────────────────────────────────────────────── */
+.section-pad { padding: .75rem 1.25rem; }
+.text-accent { color: var(--accent) !important; }
+.toast-container { z-index: 9999; }
+.spinner-accent { color: var(--accent); }
+
+.empty-state {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: var(--muted);
+}
+.empty-state i { font-size: 3rem; display: block; margin-bottom: 1rem; opacity: .4; }
+.empty-state p { font-size: .9rem; }
+
+/* ── html5-qrcode Overrides ──────────────────────────────────── */
+#qr-reader {
+    width: 100% !important;
+    height: 100% !important;
+    border: none !important;
+    background: #000;
+}
+#qr-reader video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+}
+/* Alle eigenen UI-Elemente der Library ausblenden */
+#qr-reader__dashboard,
+#qr-reader__status_span,
+#qr-reader__camera_selection,
+#qr-reader__filescan_input,
+#qr-reader img {
+    display: none !important;
+}
+
+/* ── Live-Scan Modus ───────────────────────────────────────────
+   WICHTIG: Wir überschreiben hier absichtlich NICHT width/height des
+   Video-Elements mit !important. html5-qrcode berechnet seine Scan-Zone
+   (qrbox) relativ zu der Größe, die es dem Video SELBST per JS zuweist.
+   Erzwingen wir per CSS eine andere Größe, verzerrt das Bild und/oder die
+   Scan-Zone weicht vom sichtbaren Rahmen ab (genau das beobachtete Problem).
+   Wir lassen die Library also ihre eigene Größe bestimmen und sorgen nur
+   dafür, dass der Container das zentriert und schön umrahmt darstellt. */
+#liveQrReader {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    background: #000;
+    position: relative;
+    border: none !important;
+    width: 100% !important;
+    /* Begrenzung über max-width statt max-height: damit bleibt aspect-ratio
+       die einzige Höhen-bestimmende Regel (kein Konflikt), aber der Container
+       wird auf breiten Bildschirmen (Tablet/Desktop) nicht unbegrenzt hoch. */
+    max-width: 480px;
+    margin: 0 auto;
+    /* NUR aspect-ratio, KEIN max-height: beide zusammen sind ein Konflikt –
+       der Browser muss bei widersprüchlichen Vorgaben eine der beiden Regeln
+       brechen, was zu einer Größe führte, die weder zum erwarteten
+       Seitenverhältnis noch zur Library-Berechnung passte. 9:16 ist das
+       einzige Seitenverhältnis, das nachweislich zuverlässig funktioniert
+       (siehe Tests: 4:3 brach die Erkennung auf nur einen Bildbereich). */
+    aspect-ratio: 9 / 16;
+    overflow: hidden;
+}
+#liveQrReader video {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    display: block !important;
+}
+#liveQrReader__dashboard,
+#liveQrReader__status_span,
+#liveQrReader__camera_selection,
+#liveQrReader__filescan_input,
+#liveQrReader img {
+    display: none !important;
+}
+/* Der echte Scan-Rahmen, den html5-qrcode selbst zeichnet, bleibt in seiner
+   Standardfarbe (weiß) – kein grünes Overlay mehr nötig. */
+#liveQrReader__scan_region {
+    box-shadow: 0 0 0 2000px rgba(0,0,0,.5);
+}
+
+/* ── Makro-Label Fix ─────────────────────────────────────────── */
+.macro-bar-label {
+    font-size: .75rem;
+    color: var(--muted);
+    width: 52px;
+    min-width: 52px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Aktivitätskalorien Badge ────────────────────────────────── */
+.aktiv-badge {
+    display: inline-flex; align-items: center; gap: .35rem;
+    background: rgba(74,222,128,.12); border: 1px solid rgba(74,222,128,.3);
+    color: var(--accent); border-radius: 20px;
+    font-size: .78rem; font-weight: 600;
+    padding: .25rem .75rem; margin-top: .4rem;
+}
+
+/* ── Profil-Seite ────────────────────────────────────────────── */
+.profil-section-title {
+    font-size: .72rem; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted);
+    padding: .75rem 1.25rem .25rem;
+}
+.profil-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: .85rem 1.25rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+}
+.profil-row:first-of-type { border-top: 1px solid var(--border); }
+.profil-row__label { font-size: .88rem; color: var(--muted); }
+.profil-row__val   { font-size: .95rem; font-weight: 700; }
+.profil-row__val.accent { color: var(--accent); }
+
+/* ── Gewicht-Chart ───────────────────────────────────────────── */
+.weight-chart-wrap {
+    margin: 0 1rem .75rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1rem;
+    overflow: hidden;
+}
+
+/* ── Portionswahl-Toggle ─────────────────────────────────────── */
+.portion-toggle {
+    flex: 1;
+    padding: .4rem .75rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: .82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.portion-toggle.active {
+    background: rgba(74,222,128,.15);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* ── Ziel-Toggle: heute buchen vs. nur anlegen (Meal-Prep) ──────── */
+.ziel-toggle-wrap { display: flex; gap: .5rem; justify-content: center; margin-bottom: 1rem; }
+.ziel-toggle-wrap .portion-toggle { flex: 0 0 auto; padding: .45rem 1rem; }
+
+/* ── Swipe-to-reveal Einträge ────────────────────────────────── */
+.swipe-entry {
+    position: relative;
+    overflow: hidden;
+}
+/* Der sichtbare Inhalts-Bereich */
+.swipe-entry__content {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .7rem 1.25rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    transition: transform .22s cubic-bezier(.4,0,.2,1);
+    position: relative;
+    z-index: 1;
+}
+/* Aktionsbuttons – starten außerhalb des sichtbaren Bereichs */
+.swipe-entry__actions {
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    display: flex;
+    align-items: stretch;
+    z-index: 0;
+    transform: translateX(100%);
+    transition: transform .22s cubic-bezier(.4,0,.2,1);
+}
+.swipe-entry__actions button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .2rem;
+    width: 5rem;
+    border: none;
+    font-size: .7rem;
+    font-weight: 700;
+    cursor: pointer;
+    color: #fff;
+}
+.swipe-entry__actions button i { font-size: 1.2rem; }
+.swipe-action-edit   { background: #3b82f6; }
+.swipe-action-delete { background: #ef4444; }
+
+/* Beim Öffnen: Content nach links, Actions von rechts reinschieben */
+.swipe-entry.open .swipe-entry__content {
+    transform: translateX(-10rem); /* 2 × 5rem Buttons */
+}
+.swipe-entry.open .swipe-entry__actions {
+    transform: translateX(0);
+}
+/* Drei Action-Buttons (Teilen 4.5rem + Bearbeiten 5rem + Löschen 5rem) */
+.swipe-entry.three-actions.open .swipe-entry__content {
+    transform: translateX(-14.5rem);
+}
+
+/* Vier Action-Buttons (Teilen 4.5rem + Duplizieren 4.5rem + Bearbeiten 5rem + Löschen 5rem) */
+.swipe-entry.four-actions.open .swipe-entry__content {
+    transform: translateX(-19rem);
+}
+
+/* Nur ein Action-Button (z.B. nur Löschen bei Gericht-Zutaten) */
+.swipe-entry.single-action.open .swipe-entry__content {
+    transform: translateX(-5rem);
+}
+
+/* ── Bearbeiten-Modal ────────────────────────────────────────── */
+#editEntryModal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    background: rgba(0,0,0,.7);
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+}
+#editEntryModal .edit-modal__inner {
+    background: var(--bg);
+    border-radius: 20px;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 420px;
+}
+
+/* ── Hilfetexte ──────────────────────────────────────────────── */
+.hilfetext {
+    font-size: .72rem;
+    color: var(--muted);
+    margin-top: .75rem;
+    margin-bottom: 0;
+    padding-top: .75rem;
+    border-top: 1px solid var(--border);
+    line-height: 1.5;
+}
+
+/* ── Info-Icon + Tooltip ─────────────────────────────────────── */
+/* Wrapper für Cards: position:relative auf der Card vorausgesetzt */
+.kt-info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    font-size: .8rem;
+    border: none;
+    cursor: pointer;
+    transition: color .15s;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    padding: 0;
+    line-height: 1;
+    vertical-align: middle;
+}
+.kt-info-btn:active { color: var(--accent); }
+.kt-info-btn.open   { color: var(--accent); }
+
+/* In Card: oben rechts absolut */
+.kt-info-card-wrap {
+    position: absolute;
+    top: .4rem;
+    right: .6rem;
+    z-index: 10;
+}
+
+/* Tooltip */
+.kt-tooltip {
+		margin-right: 1.2rem;
+    display: none !important;
+    position: absolute;
+    right: 0;
+    top: calc(100% + -.5rem);
+    width: 300px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: .6rem .75rem;
+    font-size: .75rem;
+    color: var(--muted);
+    line-height: 1.5;
+    z-index: 100;
+    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+}
+
+.kt-tooltip.open {
+    display: block !important;
+}
+
+/* Inline-Variante (kein Card-Kontext) */
+.kt-info-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    position: relative;
+}
+.kt-info-inline .kt-tooltip {
+    right: auto;
+    left: 0;
+    top: calc(100% + .3rem);
+    width: 240px;
+}
+.hilfetext .bi-info-circle {
+    margin-right: .25rem;
+    flex-shrink: 0;
+}
+
+/* ── Toggle (Profil-Einstellungen) ───────────────────────────── */
+.toggle-label {
+    display: block;
+    width: 3rem;
+    height: 1.6rem;
+    background: var(--surface2);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .2s;
+    position: relative;
+}
+.toggle-knob {
+    position: absolute;
+    top: .2rem;
+    left: .2rem;
+    width: 1.2rem;
+    height: 1.2rem;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform .2s;
+    display: block;
+}
+/* ── Switch (Einstellungen – div-basiert) ────────────────────── */
+.kt-switch {
+    flex-shrink: 0;
+    width: 3rem;
+    height: 1.6rem;
+    background: var(--surface2);
+    border-radius: 999px;
+    position: relative;
+    transition: background .2s;
+}
+.kt-switch-knob {
+    position: absolute;
+    top: .2rem;
+    left: .2rem;
+    width: 1.2rem;
+    height: 1.2rem;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform .2s;
+}
