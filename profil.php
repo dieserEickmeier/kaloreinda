@@ -94,8 +94,8 @@ renderHeader('Profil', 'profil');
 
     <!-- Info-Icon -->
     <div class="kt-info-card-wrap" style="top:-.1rem;right:.1rem"><button class="kt-info-btn" type="button" aria-label="Info"><i class="bi bi-info-circle"></i></button><div class="kt-tooltip" style="width:300px">Trage dein Gewicht täglich ein – am besten morgens nüchtern für vergleichbare Werte.<br><br>
-<strong>Grüne Linie</strong> – dein eingetragenes Gewicht. Schwankungen von 1–2 kg täglich sind normal (Wasser, Verdauung).<br><br>
-<strong>Orange Linie</strong> – EWMA-Trend: filtert Schwankungen heraus und zeigt die echte Richtung. Neuere Messungen werden stärker gewichtet.<br><br>
+<strong>Gelbe gestrichelte Linie</strong> – dein eingetragenes Gewicht. Schwankungen von 1–2 kg täglich sind normal (Wasser, Verdauung).<br><br>
+<strong>Grüne Linie</strong> – EWMA-Trend: filtert Schwankungen heraus und zeigt die echte Richtung. Neuere Messungen werden stärker gewichtet.<br><br>
 <strong>Trend/Woche</strong> – wöchentliche Veränderung des geglätteten Gewichts. Realistisches Abnahmetempo: 0,3–0,7 kg/Woche.<br><br>
 <strong>Verlauf</strong> – zeigt deine letzten 7 Einträge. Zum Löschen nach links wischen.</div></div>
 
@@ -278,14 +278,7 @@ function setPeriod(period) {
                     {
                         label: 'Gewicht',
                         data: paddedWeights,
-                        borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,.1)',
-                        borderWidth: 2, pointRadius: 0, pointHoverRadius: 0, pointBackgroundColor: '#4ade80',
-                        fill: true, tension: 0.35, spanGaps: false
-                    },
-                    {
-                        label: 'Trend',
-                        data: paddedTrend,
-                        borderColor: 'rgba(251,146,60,0.8)',
+                        borderColor: '#facc15',
                         backgroundColor: 'transparent',
                         borderWidth: 2,
                         borderDash: [6, 4],
@@ -293,6 +286,13 @@ function setPeriod(period) {
                         fill: false,
                         tension: 0,
                         spanGaps: false
+                    },
+                    {
+                        label: 'Trend',
+                        data: paddedTrend,
+                        borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,.1)',
+                        borderWidth: 2, pointRadius: 0, pointHoverRadius: 0, pointBackgroundColor: '#4ade80',
+                        fill: true, tension: 0.35, spanGaps: false
                     }
                 ]
             },
