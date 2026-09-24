@@ -251,10 +251,11 @@ function setPeriod(period) {
     const diff  = last - first;
     const diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
     const diffColor = diff < 0 ? '#4ade80' : diff > 0 ? '#f87171' : 'var(--muted)';
+    const currentTrend = trendData[trendData.length - 1];
     document.getElementById('chartStats').innerHTML = `
         <div><div style="font-weight:700;color:var(--text);">${first.toFixed(1)} kg</div><div>Start</div></div>
         <div><div style="font-weight:700;color:${diffColor};">${diffStr} kg</div><div>Veränderung</div></div>
-        <div><div style="font-weight:700;color:var(--text);">${last.toFixed(1)} kg</div><div>Aktuell</div></div>
+        <div><div style="font-weight:700;color:var(--text);">${currentTrend.toFixed(1)} kg</div><div>Aktuell Trend</div></div>
         <div><div style="font-weight:700;color:${trendColor};">${trendIcon} ${trendStr} kg</div><div>Trend/Woche</div></div>
     `;
 
