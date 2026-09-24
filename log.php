@@ -945,6 +945,17 @@ function escHtml(s) {
             .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+// Argumente für openGerichtEintragen(...) in einem onclick-Attribut.
+// Der Name wird als JSON-String-Literal übergeben und das Ganze HTML-escaped:
+// Der Browser dekodiert Entities im Attribut VOR der JS-Ausführung, ein
+// bloßes escHtml('...') innerhalb von '…' schützt daher nicht vor Ausbruch.
+function gerichtArgs(g) {
+    return escHtml([
+        Number(g.id) || 0, JSON.stringify(String(g.name ?? '')), Number(g.portionen) || 0,
+        Number(g.kcal_gesamt) || 0, Number(g.gewicht_gesamt) || 0,
+    ].join(','));
+}
+
 function showProduct(p) {
     currentProduct = p;
     const quellMap = {openfoodfacts:'OpenFoodFacts',manuell:'Manuell erfasst'};
@@ -1230,7 +1241,7 @@ async function loadTop5() {
             return;
         }
         container.innerHTML = d.results.map(p => `
-            <button onclick='selectProduct(${JSON.stringify(p).replace(/'/g,"\\u0027")})'
+            <button onclick="selectProduct(${escHtml(JSON.stringify(p))})"
                     style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
                            padding:.6rem .75rem;text-align:left;width:100%;min-width:0;overflow:hidden;">
                 <div style="font-size:.82rem;color:var(--text);font-weight:600;
@@ -1283,7 +1294,7 @@ async function doSearch(q) {
                          Gerichte</div>`;
             html += gerichte.map((g, i) => {
                 const kcal = g.kcal_gesamt ? Math.round(g.kcal_gesamt / Math.max(1, g.portionen)) : 0;
-                return `<button onclick="openGerichtEintragen(${g.id},'${escHtml(g.name)}',${g.portionen},${g.kcal_gesamt||0},${g.gewicht_gesamt||0});document.getElementById('searchInput').value='';document.getElementById('searchResults').classList.add('d-none');"
+                return `<button onclick="openGerichtEintragen(${gerichtArgs(g)});document.getElementById('searchInput').value='';document.getElementById('searchResults').classList.add('d-none');"
                                 style="display:flex;justify-content:space-between;align-items:center;width:100%;
                                        padding:.65rem 1rem;background:none;border:none;
                                        border-bottom:1px solid var(--border);text-align:left;">
@@ -1303,7 +1314,7 @@ async function doSearch(q) {
                              Lebensmittel</div>`;
             }
             html += produkte.map((p, i) => `
-                <button onclick='selectProduct(${JSON.stringify(p).replace(/'/g,"\\u0027")})'
+                <button onclick="selectProduct(${escHtml(JSON.stringify(p))})"
                         style="display:flex;justify-content:space-between;align-items:center;width:100%;
                                padding:.65rem 1rem;background:none;border:none;
                                border-bottom:${i < produkte.length-1 ? '1px solid var(--border)' : 'none'};
@@ -2218,7 +2229,7 @@ async function loadTopGerichte() {
     const top4 = d.gerichte.slice(0, 4);
     container.innerHTML = top4.map(g => {
         const kcal = g.kcal_gesamt ? Math.round(g.kcal_gesamt / Math.max(1, g.portionen)) : '?';
-        return `<button onclick="openGerichtEintragen(${g.id},'${escHtml(g.name)}',${g.portionen},${g.kcal_gesamt||0},${g.gewicht_gesamt||0})"
+        return `<button onclick="openGerichtEintragen(${gerichtArgs(g)})"
                         style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
                                padding:.65rem .75rem;text-align:left;cursor:pointer;width:100%;">
                     <div style="font-size:.82rem;font-weight:700;color:var(--text);

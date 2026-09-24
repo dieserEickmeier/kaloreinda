@@ -10,12 +10,20 @@ $db          = db();
 
 // ─── POST: Einstellungen speichern ────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    csrfCheck();
 
     if ($_POST['action'] === 'passwort') {
+        $altPw  = $_POST['alt_passwort']  ?? '';
         $neuPw  = $_POST['neu_passwort']  ?? '';
         $neuPw2 = $_POST['neu_passwort2'] ?? '';
 
-        if (strlen($neuPw) < 8) {
+        $stmtAlt = $db->prepare("SELECT password_hash FROM users WHERE id = ?");
+        $stmtAlt->bind_param('i', $userId); $stmtAlt->execute();
+        $altHash = $stmtAlt->get_result()->fetch_assoc()['password_hash'] ?? '';
+
+        if (!password_verify($altPw, $altHash)) {
+            $pwFehler = 'Das aktuelle Passwort ist falsch.';
+        } elseif (strlen($neuPw) < 8) {
             $pwFehler = 'Neues Passwort muss mindestens 8 Zeichen haben.';
         } elseif ($neuPw !== $neuPw2) {
             $pwFehler = 'Die neuen Passwörter stimmen nicht überein.';
@@ -46,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $existingId = $existing['id'];
         $stmt->bind_param('isisiiiii', $groesse, $aktivitaet, $defizit, $geschlecht, $geburtsjahr, $gruppieren, $makros, $existingId, $userId);
     } else {
-        $stmt = $db->prepare("INSERT INTO profil (user_id, groesse_cm, aktivitaet, defizit_kcal, geschlecht, geburtsjahr, eintraege_gruppieren, makros_anzeigen) VALUES (?,?,?,?,?)");
+        $stmt = $db->prepare("INSERT INTO profil (user_id, groesse_cm, aktivitaet, defizit_kcal, geschlecht, geburtsjahr, eintraege_gruppieren, makros_anzeigen) VALUES (?,?,?,?,?,?,?,?)");
         $stmt->bind_param('iisisiii', $userId, $groesse, $aktivitaet, $defizit, $geschlecht, $geburtsjahr, $gruppieren, $makros);
     }
     $stmt->execute();
@@ -86,6 +94,7 @@ renderHeader('Einstellungen', 'profil');
 </div>
 
 <form method="post" style="margin:0 1rem 1rem;">
+    <?= csrfField() ?>
     <input type="hidden" name="action" value="profil">
 
     <!-- ── Meine Daten ──────────────────────────────────────────── -->
@@ -219,7 +228,14 @@ renderHeader('Einstellungen', 'profil');
         </div>
         <?php endif; ?>
         <form method="post">
+            <?= csrfField() ?>
             <input type="hidden" name="action" value="passwort">
+            <div class="mb-3">
+                <label class="form-label" style="color:var(--muted);font-size:.82rem;">Aktuelles Passwort</label>
+                <input type="password" name="alt_passwort" class="form-control" autocomplete="current-password"
+                       required
+                       style="background:var(--surface);border-color:var(--border);color:var(--text);border-radius:12px;">
+            </div>
             <div class="mb-3">
                 <label class="form-label" style="color:var(--muted);font-size:.82rem;">Neues Passwort</label>
                 <input type="password" name="neu_passwort" class="form-control" autocomplete="new-password"

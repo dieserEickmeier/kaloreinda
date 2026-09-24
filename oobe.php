@@ -22,6 +22,7 @@ if ($oobeOk) { header('Location: /index.php'); exit; }
 
 // ─── POST: Profil anlegen ─────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrfCheck();
     $geschlecht  = trim($_POST['geschlecht']  ?? 'm') === 'w' ? 'w' : 'm';
     $geburtsjahr = (int)($_POST['geburtsjahr']  ?? 1990);
     $groesse     = (int)($_POST['groesse']      ?? 175);
@@ -139,6 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <form method="post" id="oobeForm">
+        <?= csrfField() ?>
 
     <!-- ── Schritt 1: Geschlecht ────────────────────────────────── -->
     <div class="oobe-step" id="step-0">

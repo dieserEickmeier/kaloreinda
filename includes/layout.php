@@ -29,6 +29,27 @@ function renderHeader(string $title = APP_NAME, string $activeNav = ''): void {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="/assets/css/app.css?v=41">
+    <meta name="csrf-token" content="<?= htmlspecialchars(csrfToken()) ?>">
+    <script>
+    // Hängt den CSRF-Token automatisch an alle schreibenden Requests an die
+    // eigene API an (POST/PUT/PATCH/DELETE) – die Endpunkte prüfen ihn.
+    (function() {
+        var token = document.querySelector('meta[name="csrf-token"]').content;
+        var origFetch = window.fetch.bind(window);
+        window.fetch = function(input, init) {
+            init = init || {};
+            var method = (init.method || 'GET').toUpperCase();
+            var url    = typeof input === 'string' ? input : (input && input.url) || '';
+            if (method !== 'GET' && method !== 'HEAD'
+                && new URL(url, location.href).origin === location.origin) {
+                var headers = new Headers(init.headers || {});
+                headers.set('X-CSRF-Token', token);
+                init = Object.assign({}, init, { headers: headers });
+            }
+            return origFetch(input, init);
+        };
+    })();
+    </script>
 </head>
 <body>
 <!-- Deckt die Statusleisten-/Dynamic-Island-Zone permanent mit dem

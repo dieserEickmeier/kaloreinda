@@ -21,7 +21,7 @@ require_once __DIR__ . '/../includes/auth.php';
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Api-Key');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
@@ -32,6 +32,8 @@ $method = $_SERVER['REQUEST_METHOD'];
 $sessionUser = currentUser();
 if ($sessionUser) {
     $userId = $sessionUser['id'];
+    // Browser-Zugriff per Session-Cookie → CSRF-Schutz für schreibende Methoden
+    csrfCheckApi();
 } else {
     $userId = getUserIdFromApiKey();
     if (!$userId) {

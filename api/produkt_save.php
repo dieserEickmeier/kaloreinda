@@ -11,6 +11,7 @@ header('Content-Type: application/json');
 $user = currentUser();
 if (!$user) { http_response_code(401); echo json_encode(['ok'=>false,'error'=>'Nicht eingeloggt']); exit; }
 $userId = $user['id'];
+csrfCheckApi();
 
 $method = $_SERVER['REQUEST_METHOD'];
 $body   = json_decode(file_get_contents('php://input'), true) ?? [];
@@ -31,9 +32,22 @@ if ($method === 'PATCH') {
         exit;
     }
 
-    $stmt = $db->prepare("UPDATE produkte SET portion_g = ? WHERE id = ?");
-    $stmt->bind_param('di', $portionG, $produktId);
-    echo json_encode(['ok' => $stmt->execute(), 'portion_g' => $portionG]);
+    // Produkte sind geteilt (Barcode-Cache): eine fehlende Portionsgröße darf
+    // jeder nachtragen, eine bereits gesetzte aber nur der Ersteller eines
+    // manuellen Produkts ändern – sonst könnte jeder Nutzer fremde Werte
+    // überschreiben.
+    $stmt = $db->prepare("
+        UPDATE produkte SET portion_g = ?
+        WHERE id = ?
+          AND (portion_g IS NULL OR (quelle = 'manuell' AND ersteller_id = ?))
+    ");
+    $stmt->bind_param('dii', $portionG, $produktId, $userId);
+    $stmt->execute();
+    if ($stmt->affected_rows < 1) {
+        echo json_encode(['ok' => false, 'error' => 'Produkt nicht gefunden oder keine Berechtigung']);
+        exit;
+    }
+    echo json_encode(['ok' => true, 'portion_g' => $portionG]);
     exit;
 }
 
@@ -76,5 +90,6 @@ $stmt->bind_param('sdddddi', $name, $kcal, $eiweiss, $fett, $kh, $portionG, $use
 if ($stmt->execute()) {
     echo json_encode(['ok' => true, 'id' => $db->insert_id, 'new' => true]);
 } else {
-    echo json_encode(['ok' => false, 'error' => $db->error]);
+    error_log('produkt_save.php POST: ' . $db->error);
+    echo json_encode(['ok' => false, 'error' => 'Datenbankfehler']);
 }

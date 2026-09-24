@@ -105,11 +105,30 @@ function csrfToken(): string {
     return $_SESSION['csrf_token'];
 }
 
-function csrfCheck(): void {
-    $token = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-    if (!hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
-        http_response_code(403);
-        die('CSRF-Token ungültig');
+function csrfValid(): bool {
+    $expected = $_SESSION['csrf_token'] ?? '';
+    $token    = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    // Leerer Session-Token (z.B. neue Session) darf nie als gültig gelten,
+    // sonst würde hash_equals('', '') einen fehlenden Token akzeptieren.
+    return $expected !== '' && is_string($token) && hash_equals($expected, $token);
+}
+
+function csrfCheck(bool $json = false): void {
+    if (csrfValid()) return;
+    http_response_code(403);
+    if ($json) {
+        header('Content-Type: application/json');
+        die(json_encode(['ok' => false, 'error' => 'CSRF-Token ungültig – bitte Seite neu laden']));
+    }
+    die('CSRF-Token ungültig – bitte Seite neu laden');
+}
+
+// Für API-Endpunkte mit Session-Login: schreibende Methoden brauchen den
+// X-CSRF-Token-Header (setzt der fetch-Wrapper in layout.php automatisch).
+// Zugriffe per API-Key sind nicht betroffen – dort wird kein Cookie genutzt.
+function csrfCheckApi(): void {
+    if (!in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET', 'HEAD', 'OPTIONS'], true)) {
+        csrfCheck(true);
     }
 }
 

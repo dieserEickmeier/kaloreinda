@@ -17,16 +17,17 @@ $stmt = $db->prepare("
         (SELECT kg   FROM gewicht       WHERE user_id = ? ORDER BY datum DESC, id DESC LIMIT 1) AS aktuelles_kg,
         (SELECT kcal_ziel FROM tagesziele WHERE user_id = ? AND datum = ? LIMIT 1)              AS manuelles_ziel,
         (SELECT COALESCE(SUM(kcal),0) FROM aktivitaet_log WHERE user_id = ? AND datum = ?)     AS aktiv_kcal
-    FROM profil p
-    WHERE p.user_id = ?
+    FROM (SELECT 1) AS dummy
+    LEFT JOIN profil p ON p.user_id = ?
     LIMIT 1
 ");
-$stmt->bind_param('iisssi', $userId, $userId, $heute, $userId, $heute, $userId);
+$stmt->bind_param('iisisi', $userId, $userId, $heute, $userId, $heute, $userId);
 $stmt->execute();
 $row = $stmt->get_result()->fetch_assoc();
 
-// Fallback wenn noch kein Profil-Eintrag vorhanden (neuer User)
-$profil           = $row ?? [];
+// LEFT JOIN: Gewicht, Tagesziel und Aktivität kommen auch ohne Profil-Eintrag
+// (neuer User); p.id ist dann NULL → Profil als leer behandeln.
+$profil           = $row['id'] !== null ? $row : [];
 $aktuellesGewicht = $row['aktuelles_kg'] !== null ? (float)$row['aktuelles_kg'] : null;
 $manuellesZiel    = $row['manuelles_ziel'] !== null ? (int)$row['manuelles_ziel'] : null;
 $aktivKcal        = (int)$row['aktiv_kcal'];

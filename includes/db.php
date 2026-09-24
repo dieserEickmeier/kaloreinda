@@ -5,10 +5,19 @@ function db(): mysqli {
     static $conn = null;
     if ($conn === null) {
         // 'p:' prefix = persistente Verbindung (Connection Pooling)
-        $conn = new mysqli('p:' . DB_HOST, DB_USER, DB_PASS, DB_NAME);
-        if ($conn->connect_error) {
+        // Details nur ins Server-Log, nicht an den Browser (Hostname/Benutzer
+        // der Datenbank sollen nicht nach außen sichtbar werden).
+        try {
+            $conn = new mysqli('p:' . DB_HOST, DB_USER, DB_PASS, DB_NAME);
+        } catch (mysqli_sql_exception $e) {
+            error_log('DB-Verbindung fehlgeschlagen: ' . $e->getMessage());
             http_response_code(500);
-            die(json_encode(['error' => 'Datenbankverbindung fehlgeschlagen: ' . $conn->connect_error]));
+            die(json_encode(['error' => 'Datenbankverbindung fehlgeschlagen']));
+        }
+        if ($conn->connect_error) {
+            error_log('DB-Verbindung fehlgeschlagen: ' . $conn->connect_error);
+            http_response_code(500);
+            die(json_encode(['error' => 'Datenbankverbindung fehlgeschlagen']));
         }
         $conn->set_charset('utf8mb4');
     }

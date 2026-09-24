@@ -11,6 +11,7 @@ header('Content-Type: application/json');
 
 $user = currentUser();
 if (!$user) { http_response_code(401); echo json_encode(['ok'=>false,'error'=>'Nicht eingeloggt']); exit; }
+csrfCheckApi();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'DELETE') {
     http_response_code(405);
@@ -36,5 +37,6 @@ $stmt->bind_param('ii', $id, $user['id']);
 if ($stmt->execute()) {
     echo json_encode(['ok'=>true, 'deleted'=>$stmt->affected_rows > 0]);
 } else {
-    echo json_encode(['ok'=>false,'error'=>$db->error]);
+    error_log('produkt_delete.php: ' . $db->error);
+    echo json_encode(['ok'=>false,'error'=>'Datenbankfehler']);
 }

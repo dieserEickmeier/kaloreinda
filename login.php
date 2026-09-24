@@ -21,6 +21,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
     if (!checkRateLimit('login_' . $ip, 10, 300)) {
         $error = 'Zu viele Versuche. Bitte 5 Minuten warten.';
+    } elseif (!csrfValid()) {
+        // z.B. Login-Seite lange offen und Session inzwischen abgelaufen
+        $error = 'Sitzung abgelaufen. Bitte erneut anmelden.';
     } else {
         $username = trim($_POST['username'] ?? '');
         $password = $_POST['password'] ?? '';

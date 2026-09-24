@@ -8,6 +8,7 @@ header('Content-Type: application/json');
 $user = currentUser();
 if (!$user) { http_response_code(401); echo json_encode(['ok'=>false,'error'=>'Nicht eingeloggt']); exit; }
 $userId = $user['id'];
+csrfCheckApi();
 
 $db     = db();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -67,7 +68,8 @@ if ($method === 'POST') {
     if ($stmt->execute()) {
         echo json_encode(['ok' => true, 'id' => $db->insert_id]);
     } else {
-        echo json_encode(['ok' => false, 'error' => $db->error]);
+        error_log('entry.php POST: ' . $db->error);
+        echo json_encode(['ok' => false, 'error' => 'Datenbankfehler']);
     }
     exit;
 }
@@ -143,7 +145,8 @@ if ($method === 'PUT') {
         echo json_encode(['ok' => true, 'menge_g' => $neueMenge, 'kcal' => round($kcal, 1),
                            'eiweiss' => round($eiweiss, 1), 'fett' => round($fett, 1), 'kh' => round($kh, 1)]);
     } else {
-        echo json_encode(['ok' => false, 'error' => $db->error]);
+        error_log('entry.php PUT: ' . $db->error);
+        echo json_encode(['ok' => false, 'error' => 'Datenbankfehler']);
     }
     exit;
 }

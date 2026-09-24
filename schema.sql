@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
     display_name  VARCHAR(120),
     aktiv         TINYINT(1)   NOT NULL DEFAULT 1,
     api_key       VARCHAR(64)  DEFAULT NULL UNIQUE,
+    oobe_abgeschlossen TINYINT(1) DEFAULT 0,
     erstellt_am   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -37,7 +38,7 @@ CREATE TABLE IF NOT EXISTS produkte (
                                                 -- Cache-Produkten (openfoodfacts) – dort ist Ownership egal.
     erstellt_am   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
     aktualisiert_am TIMESTAMP  DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (ersteller_id) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_produkte_ersteller FOREIGN KEY (ersteller_id) REFERENCES users(id) ON DELETE SET NULL,
     INDEX idx_barcode (barcode),
     INDEX idx_ersteller (ersteller_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS eintraege (
     id          INT AUTO_INCREMENT PRIMARY KEY,
     user_id     INT          NOT NULL,
     produkt_id  INT,
+    gericht_id  INT          DEFAULT NULL,
     name        VARCHAR(255) NOT NULL,
     menge_g     DECIMAL(8,1) NOT NULL DEFAULT 100,
     kcal        DECIMAL(8,1) NOT NULL,
@@ -91,6 +93,8 @@ CREATE TABLE IF NOT EXISTS profil (
     geschlecht      ENUM('m','w') DEFAULT 'm',
     geburtsjahr     INT  DEFAULT 1990,
     eintraege_gruppieren TINYINT(1) DEFAULT 0,
+    hilfetext_anzeigen   TINYINT(1) DEFAULT 1,
+    makros_anzeigen      TINYINT(1) DEFAULT 1,
     erstellt_am     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     aktualisiert_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -135,39 +139,40 @@ CREATE TABLE IF NOT EXISTS sessions (
 -- ─────────────────────────────────────────────────────────────────────────────
 -- MIGRATION für bestehende Live-Datenbank (manuell ausführen!)
 -- CREATE TABLE IF NOT EXISTS verändert eine bereits existierende Tabelle
--- NICHT – diese beiden ALTER TABLE-Befehle müssen einmalig von Hand
--- ausgeführt werden, damit die oben beschriebenen Änderungen auch auf der
--- produktiven Datenbank ankommen.
+-- NICHT – die folgenden ALTER TABLE-Befehle bringen eine bestehende
+-- Datenbank auf den aktuellen Stand. Alle Befehle sind idempotent
+-- (IF NOT EXISTS), die komplette Datei kann daher sowohl auf einer neuen
+-- als auch auf einer bestehenden Datenbank beliebig oft ausgeführt werden.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- 1. Cache-Alterung für den Barcode-Produkt-Cache:
 ALTER TABLE produkte
-    ADD COLUMN aktualisiert_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ADD COLUMN IF NOT EXISTS aktualisiert_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     AFTER erstellt_am;
 
 -- 2. Zusammengesetzter Index für die häufigste Abfrage (user_id + datum):
 ALTER TABLE eintraege
-    ADD INDEX idx_user_datum (user_id, datum);
+    ADD INDEX IF NOT EXISTS idx_user_datum (user_id, datum);
 
 -- 3. Portionsgröße in Gramm (optional, aus OpenFoodFacts oder manuell gepflegt):
 ALTER TABLE produkte
-    ADD COLUMN portion_g DECIMAL(8,1) DEFAULT NULL AFTER kh_100g;
+    ADD COLUMN IF NOT EXISTS portion_g DECIMAL(8,1) DEFAULT NULL AFTER kh_100g;
 
 -- 4. Einträge gruppieren Option im Profil:
 ALTER TABLE profil
-    ADD COLUMN eintraege_gruppieren TINYINT(1) DEFAULT 0 AFTER geburtsjahr;
+    ADD COLUMN IF NOT EXISTS eintraege_gruppieren TINYINT(1) DEFAULT 0 AFTER geburtsjahr;
 
 -- 5. Persönlicher API-Key pro Nutzer:
-ALTER TABLE users ADD COLUMN api_key VARCHAR(64) DEFAULT NULL UNIQUE AFTER aktiv;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key VARCHAR(64) DEFAULT NULL UNIQUE AFTER aktiv;
 -- Bestehende Nutzer bekommen automatisch einen zufälligen Key:
 UPDATE users SET api_key = LOWER(HEX(RANDOM_BYTES(32))) WHERE api_key IS NULL;
 
 -- 6. Hilfetexte anzeigen Option:
 ALTER TABLE profil
-    ADD COLUMN hilfetext_anzeigen TINYINT(1) DEFAULT 1 AFTER eintraege_gruppieren;
+    ADD COLUMN IF NOT EXISTS hilfetext_anzeigen TINYINT(1) DEFAULT 1 AFTER eintraege_gruppieren;
 
 -- 7. OOBE-Flag in users:
-ALTER TABLE users ADD COLUMN oobe_abgeschlossen TINYINT(1) DEFAULT 0 AFTER api_key;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS oobe_abgeschlossen TINYINT(1) DEFAULT 0 AFTER api_key;
 
 -- Bestehende Nutzer mit vorhandenem Profil als OOBE-abgeschlossen markieren:
 UPDATE users u
@@ -175,10 +180,10 @@ UPDATE users u
     SET u.oobe_abgeschlossen = 1;
 
 -- 8. Makro-Anzeige Option:
-ALTER TABLE profil ADD COLUMN makros_anzeigen TINYINT(1) DEFAULT 1 AFTER hilfetext_anzeigen;
+ALTER TABLE profil ADD COLUMN IF NOT EXISTS makros_anzeigen TINYINT(1) DEFAULT 1 AFTER hilfetext_anzeigen;
 
 -- 9. Gerichte (zusammengesetzte Mahlzeiten)
-ALTER TABLE eintraege ADD COLUMN gericht_id INT DEFAULT NULL AFTER produkt_id;
+ALTER TABLE eintraege ADD COLUMN IF NOT EXISTS gericht_id INT DEFAULT NULL AFTER produkt_id;
 
 CREATE TABLE IF NOT EXISTS gerichte (
     id          INT AUTO_INCREMENT PRIMARY KEY,
@@ -222,9 +227,9 @@ ALTER TABLE produkte
 --     machte Produkt in search.php unauffindbar, da Sichtbarkeit bisher
 --     über EXISTS(eintraege) statt über echte Ownership geprüft wurde):
 ALTER TABLE produkte
-    ADD COLUMN ersteller_id INT DEFAULT NULL AFTER quelle,
-    ADD INDEX idx_ersteller (ersteller_id),
-    ADD CONSTRAINT fk_produkte_ersteller FOREIGN KEY (ersteller_id) REFERENCES users(id) ON DELETE SET NULL;
+    ADD COLUMN IF NOT EXISTS ersteller_id INT DEFAULT NULL AFTER quelle,
+    ADD INDEX IF NOT EXISTS idx_ersteller (ersteller_id),
+    ADD CONSTRAINT fk_produkte_ersteller FOREIGN KEY IF NOT EXISTS (ersteller_id) REFERENCES users(id) ON DELETE SET NULL;
 
 -- Backfill: bestehende manuelle Produkte bekommen den Ersteller aus der
 -- ersten vorhandenen Buchung zugewiesen, damit sie weiter auffindbar bleiben.
