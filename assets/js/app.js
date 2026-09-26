@@ -160,7 +160,7 @@ async function deleteEntryGlobal(id) {
 
 // ── Portionswahl-Toggle ──────────────────────────────────────────────────
 
-function setupPortionToggle(portionG, mengeInputId, previewId, kcal100g) {
+function setupPortionToggle(portionG, mengeInputId) {
     const toggleWrap   = document.getElementById('portionToggleWrap');
     if (!toggleWrap) return;
     const btnGramm     = document.getElementById('toggleGramm');
@@ -168,18 +168,20 @@ function setupPortionToggle(portionG, mengeInputId, previewId, kcal100g) {
     const portionInput = document.getElementById('portionSizeInput');
     const mengeInput   = document.getElementById(mengeInputId);
     toggleWrap.style.display = 'flex';
+    if (portionInput) { portionInput.value = ''; portionInput.style.display = 'none'; }
 
-    if (portionG && portionG > 0) {
-        btnPortion.textContent = `1 Portion (${portionG} g)`;
-        if (portionInput) portionInput.style.display = 'none';
-    } else {
-        btnPortion.textContent = '1 Portion';
-        if (portionInput) portionInput.style.display = 'none';
-    }
+    let mode = 'gramm';
 
     function getPortionSize() {
         if (portionG && portionG > 0) return portionG;
         return portionInput ? (parseFloat(portionInput.value) || 0) : 0;
+    }
+
+    // Im Portion-Modus enthält das Mengenfeld die Anzahl Portionen,
+    // gebucht wird immer in Gramm.
+    function getMengeG() {
+        const val = parseFloat(mengeInput.value) || 0;
+        return mode === 'portion' ? val * getPortionSize() : val;
     }
 
     async function savePortionIfNeeded(produktId, size) {
@@ -194,62 +196,58 @@ function setupPortionToggle(portionG, mengeInputId, previewId, kcal100g) {
         } catch(e) {}
     }
 
+    window._pfPortionMode = () => mode;
+    window._getMengeG = getMengeG;
     window._getAndSavePortion = async (produktId) => {
+        if (mode !== 'portion') return 0;
         const size = getPortionSize();
         await savePortionIfNeeded(produktId, size);
         return size;
     };
 
-    function updatePreview() {
-        const menge = parseFloat(mengeInput.value) || 0;
-        const el = document.getElementById(previewId);
-        if (el) el.textContent = Math.round(kcal100g * menge / 100);
+    function updatePortionLabel() {
+        const ps = getPortionSize();
+        btnPortion.textContent = ps > 0 ? `Portionen (${ps} g)` : 'Portionen';
     }
 
-    // Stepper/Chips/Einheit ausblenden im Portion-Modus – dort ergibt
-    // eine feste "1 Portion" mehr Sinn als Gramm-Feintuning.
-    function setQuickControlsVisible(visible) {
-        const stepMinus = document.getElementById('btnMengeMinus');
-        const stepPlus  = document.getElementById('btnMengePlus');
-        const chips     = document.getElementById('pfQuickChips');
-        const unitLabel = document.getElementById('mengeUnitLabel');
-        if (stepMinus) stepMinus.style.visibility = visible ? 'visible' : 'hidden';
-        if (stepPlus)  stepPlus.style.visibility  = visible ? 'visible' : 'hidden';
-        if (chips)     chips.style.display = visible ? 'flex' : 'none';
-        if (unitLabel) unitLabel.textContent = visible ? 'g' : 'Portion';
-    }
+    function setMode(newMode) {
+        const bisherG = getMengeG();
+        mode = newMode;
+        const isPortion = mode === 'portion';
+        btnPortion.classList.toggle('active', isPortion);
+        btnGramm.classList.toggle('active', !isPortion);
 
-    function setMode(mode) {
-        if (mode === 'portion') {
-            btnPortion.classList.add('active');
-            btnGramm.classList.remove('active');
-            mengeInput.readOnly = true;
-            mengeInput.style.opacity = '.6';
-            setQuickControlsVisible(false);
+        const chipsG = document.getElementById('pfQuickChips');
+        const chipsP = document.getElementById('pfQuickChipsPortion');
+        const unit   = document.getElementById('mengeUnitLabel');
+        if (chipsG) chipsG.style.display = isPortion ? 'none' : 'flex';
+        if (chipsP) chipsP.style.display = isPortion ? 'flex' : 'none';
+        if (unit)   unit.textContent = isPortion ? 'Portion(en)' : 'g';
+
+        if (isPortion) {
+            mengeInput.min = 0.5; mengeInput.max = 50; mengeInput.step = 0.5;
+            mengeInput.value = 1;
             if ((!portionG || portionG <= 0) && portionInput) {
                 portionInput.style.display = 'block';
                 portionInput.focus();
-                portionInput.oninput = () => {
-                    const ps = parseFloat(portionInput.value) || 0;
-                    mengeInput.value = ps;
-                    btnPortion.textContent = ps > 0 ? `1 Portion (${ps} g)` : '1 Portion';
-                    updatePreview();
-                };
-            } else {
-                mengeInput.value = getPortionSize();
-                updatePreview();
             }
         } else {
-            btnGramm.classList.add('active');
-            btnPortion.classList.remove('active');
-            mengeInput.readOnly = false;
-            mengeInput.style.opacity = '';
-            setQuickControlsVisible(true);
+            mengeInput.min = 1; mengeInput.max = 5000; mengeInput.step = 1;
+            // Beim Zurückwechseln die bisher gewählte Menge in Gramm übernehmen
+            mengeInput.value = bisherG > 0 ? Math.round(bisherG * 10) / 10 : 100;
             if (portionInput) portionInput.style.display = 'none';
-            updatePreview();
         }
+        mengeInput.dispatchEvent(new Event('input'));
     }
 
+    if (portionInput) {
+        portionInput.oninput = () => {
+            updatePortionLabel();
+            mengeInput.dispatchEvent(new Event('input'));
+        };
+    }
+
+    updatePortionLabel();
     btnGramm.onclick   = () => setMode('gramm');
     btnPortion.onclick = () => setMode('portion');
     setMode('gramm');

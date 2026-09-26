@@ -812,6 +812,13 @@ function scanOverlayHide() {
         <button type="button" class="pf-chip" data-val="200">200</button>
         <button type="button" class="pf-chip" data-val="250">250</button>
     </div>
+    <div class="pf-chips" id="pfQuickChipsPortion" style="display:none;">
+        <button type="button" class="pf-chip" data-val="0.5">½</button>
+        <button type="button" class="pf-chip" data-val="1">1</button>
+        <button type="button" class="pf-chip" data-val="1.5">1½</button>
+        <button type="button" class="pf-chip" data-val="2">2</button>
+        <button type="button" class="pf-chip" data-val="3">3</button>
+    </div>
 
     <!-- Aktionen -->
     <div class="pf-actions">
@@ -966,7 +973,7 @@ function showProduct(p) {
     document.getElementById('pfFett').textContent    = Math.round(p.fett_100g) + 'g';
     document.getElementById('pfKh').textContent      = Math.round(p.kh_100g) + 'g';
     document.getElementById('mengeInput').value = 100;
-    setupPortionToggle(p.portion_g || null, 'mengeInput', 'kcalPreview', p.kcal_100g);
+    setupPortionToggle(p.portion_g || null, 'mengeInput');
     updateKcalPreview();
     document.getElementById('productFound').classList.add('visible');
     document.getElementById('notFound').classList.add('d-none');
@@ -980,9 +987,15 @@ function showProduct(p) {
         (p.id && p.quelle === 'manuell') ? 'block' : 'none';
 }
 
+// Gewählte Menge in Gramm – im Portion-Modus Anzahl × Portionsgröße
+function getPfMengeG() {
+    if (window._getMengeG) return window._getMengeG();
+    return parseFloat(document.getElementById('mengeInput').value) || 0;
+}
+
 function updateKcalPreview() {
     if (!currentProduct) return;
-    const menge = parseFloat(document.getElementById('mengeInput').value) || 0;
+    const menge = getPfMengeG();
     document.getElementById('kcalPreview').textContent = Math.round(currentProduct.kcal_100g * menge / 100);
 }
 
@@ -2084,6 +2097,11 @@ document.getElementById('mengeInput').addEventListener('input', () => {
 function pfStep(delta) {
     const inp = document.getElementById('mengeInput');
     const cur = parseFloat(inp.value) || 0;
+    if (window._pfPortionMode && window._pfPortionMode() === 'portion') {
+        inp.value = Math.max(0.5, Math.min(50, cur + delta * 0.5));
+        inp.dispatchEvent(new Event('input'));
+        return;
+    }
     // Größere Schritte bei größeren Mengen (schnelleres Einstellen)
     const step = cur >= 500 ? 50 : (cur >= 200 ? 25 : 10);
     inp.value = Math.max(1, Math.min(5000, cur + delta * step));
@@ -2095,11 +2113,11 @@ document.getElementById('btnMengePlus').addEventListener('click', () => pfStep(1
 // ── Schnellwahl-Chips ────────────────────────────────────────────────────
 function syncPfChipsActive() {
     const val = parseFloat(document.getElementById('mengeInput').value);
-    document.querySelectorAll('#pfQuickChips .pf-chip').forEach(chip => {
+    document.querySelectorAll('#pfQuickChips .pf-chip, #pfQuickChipsPortion .pf-chip').forEach(chip => {
         chip.classList.toggle('active', parseFloat(chip.dataset.val) === val);
     });
 }
-document.querySelectorAll('#pfQuickChips .pf-chip').forEach(chip => {
+document.querySelectorAll('#pfQuickChips .pf-chip, #pfQuickChipsPortion .pf-chip').forEach(chip => {
     chip.addEventListener('click', () => {
         document.getElementById('mengeInput').value = chip.dataset.val;
         document.getElementById('mengeInput').dispatchEvent(new Event('input'));
@@ -2111,7 +2129,13 @@ document.getElementById('btnEintragen').addEventListener('click', async () => {
     const btn = document.getElementById('btnEintragen');
     btn.disabled = true;
     if (window._getAndSavePortion) await window._getAndSavePortion(currentProduct.id || null);
-    const menge = parseFloat(document.getElementById('mengeInput').value) || 100;
+    const menge = Math.round(getPfMengeG() * 10) / 10;
+    if (menge <= 0) {
+        showToast(window._pfPortionMode && window._pfPortionMode() === 'portion'
+            ? 'Bitte Portionsgröße angeben' : 'Bitte Menge angeben');
+        btn.disabled = false;
+        return;
+    }
 
     // Pick-Modus: nicht als Tageseintrag buchen, sondern als Zutat zurückgeben
     if (pickMode) {

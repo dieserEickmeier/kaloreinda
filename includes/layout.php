@@ -121,7 +121,7 @@ function renderFooter(string $activeNav = ''): void {
 </nav>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
-<script src="/assets/js/app.js?v=6" defer></script>
+<script src="/assets/js/app.js?v=7" defer></script>
 <script>
 (function() {
     // Misst die echte safe-area-inset-bottom via CSS-Trick
