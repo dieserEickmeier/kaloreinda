@@ -18,6 +18,21 @@ function startseiten(): array {
     ];
 }
 
+/**
+ * Geschätzte Schrittlänge in cm aus der Körpergröße (gängige Faustformel:
+ * Männer × 0,415, Frauen × 0,413).
+ */
+function schrittlaengeAutoCm(array $profil): float {
+    $faktor = ($profil['geschlecht'] ?? 'm') === 'w' ? 0.413 : 0.415;
+    return round((int)($profil['groesse_cm'] ?? 175) * $faktor, 1);
+}
+
+/** Schrittlänge in Metern: eigener Wert aus dem Profil, sonst automatisch. */
+function schrittlaengeM(array $profil): float {
+    $cm = (float)($profil['schrittlaenge_cm'] ?? 0);
+    return ($cm > 0 ? $cm : schrittlaengeAutoCm($profil)) / 100;
+}
+
 /** Ganzzahl mit deutschem Tausenderpunkt: 1253 → „1.253“ */
 function fmtZahl(float $n): string {
     return number_format(round($n), 0, ',', '.');

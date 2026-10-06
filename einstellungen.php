@@ -47,17 +47,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $gruppieren  = isset($_POST['eintraege_gruppieren']) ? 1 : 0;
     $makros      = isset($_POST['makros_anzeigen'])      ? 1 : 0;
     $startseite  = array_key_exists($_POST['startseite'] ?? '', startseiten()) ? $_POST['startseite'] : 'heute';
+    // Leer = automatisch aus Körpergröße (NULL); sonst 30–150 cm
+    $schrittRaw  = trim(str_replace(',', '.', $_POST['schrittlaenge'] ?? ''));
+    $schritt     = is_numeric($schrittRaw) ? round(max(30, min(150, (float)$schrittRaw)), 1) : null;
 
     $stmtEx = $db->prepare("SELECT id FROM profil WHERE user_id = ? LIMIT 1");
     $stmtEx->bind_param("i", $userId); $stmtEx->execute();
     $existing = $stmtEx->get_result()->fetch_assoc();
     if ($existing) {
-        $stmt = $db->prepare("UPDATE profil SET groesse_cm=?, aktivitaet=?, defizit_kcal=?, geschlecht=?, geburtsjahr=?, eintraege_gruppieren=?, makros_anzeigen=?, startseite=? WHERE id=? AND user_id=?");
+        $stmt = $db->prepare("UPDATE profil SET groesse_cm=?, aktivitaet=?, defizit_kcal=?, geschlecht=?, geburtsjahr=?, eintraege_gruppieren=?, makros_anzeigen=?, startseite=?, schrittlaenge_cm=? WHERE id=? AND user_id=?");
         $existingId = $existing['id'];
-        $stmt->bind_param('isisiiisii', $groesse, $aktivitaet, $defizit, $geschlecht, $geburtsjahr, $gruppieren, $makros, $startseite, $existingId, $userId);
+        $stmt->bind_param('isisiiisdii', $groesse, $aktivitaet, $defizit, $geschlecht, $geburtsjahr, $gruppieren, $makros, $startseite, $schritt, $existingId, $userId);
     } else {
-        $stmt = $db->prepare("INSERT INTO profil (user_id, groesse_cm, aktivitaet, defizit_kcal, geschlecht, geburtsjahr, eintraege_gruppieren, makros_anzeigen, startseite) VALUES (?,?,?,?,?,?,?,?,?)");
-        $stmt->bind_param('iisisiiis', $userId, $groesse, $aktivitaet, $defizit, $geschlecht, $geburtsjahr, $gruppieren, $makros, $startseite);
+        $stmt = $db->prepare("INSERT INTO profil (user_id, groesse_cm, aktivitaet, defizit_kcal, geschlecht, geburtsjahr, eintraege_gruppieren, makros_anzeigen, startseite, schrittlaenge_cm) VALUES (?,?,?,?,?,?,?,?,?,?)");
+        $stmt->bind_param('iisisiiisd', $userId, $groesse, $aktivitaet, $defizit, $geschlecht, $geburtsjahr, $gruppieren, $makros, $startseite, $schritt);
     }
     $stmt->execute();
     echo '<script>location.href="einstellungen.php?saved=1"</script>'; exit;
@@ -122,6 +125,14 @@ $defizitAkt = (int)($profil['defizit_kcal'] ?? 500);
                        value="<?= (int)($profil['groesse_cm'] ?? 175) ?>"
                        class="form-control" inputmode="numeric">
             </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label" for="fSchritt">Schrittlänge (cm) <span class="text-muted">– leer = automatisch</span></label>
+            <input type="text" name="schrittlaenge" id="fSchritt" class="form-control" inputmode="decimal"
+                   value="<?= !empty($profil['schrittlaenge_cm']) ? rtrim(rtrim(number_format((float)$profil['schrittlaenge_cm'], 1, ',', ''), '0'), ',') : '' ?>"
+                   placeholder="automatisch: <?= number_format(schrittlaengeAutoCm($profil ?? []), 1, ',', '') ?> cm">
+            <div class="tile__sub">Für Schritte per API (z.B. Smartwatch). Automatisch = Körpergröße × 0,415 (Männer) bzw. 0,413 (Frauen).</div>
         </div>
 
         <div class="mb-3">

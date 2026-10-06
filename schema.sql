@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS profil (
     eintraege_gruppieren TINYINT(1) DEFAULT 0,
     hilfetext_anzeigen   TINYINT(1) DEFAULT 1,
     makros_anzeigen      TINYINT(1) DEFAULT 1,
-    startseite           VARCHAR(20) DEFAULT 'heute',  -- Seite beim App-Start (siehe startseiten() in includes/ui.php)
+    startseite           VARCHAR(20) DEFAULT 'heute',
+    schrittlaenge_cm     DECIMAL(4,1) DEFAULT NULL,    -- NULL = aus Körpergröße (siehe schrittlaengeM() in includes/ui.php)  -- Seite beim App-Start (siehe startseiten() in includes/ui.php)
     erstellt_am     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     aktualisiert_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -250,3 +251,6 @@ WHERE p.quelle = 'manuell' AND p.ersteller_id IS NULL;
 
 -- 11. Startseite pro Nutzer (Einstellungen → Ansicht):
 ALTER TABLE profil ADD COLUMN IF NOT EXISTS startseite VARCHAR(20) DEFAULT 'heute' AFTER makros_anzeigen;
+
+-- 12. Schrittlänge für die Schritte-API (NULL = automatisch aus Körpergröße):
+ALTER TABLE profil ADD COLUMN IF NOT EXISTS schrittlaenge_cm DECIMAL(4,1) DEFAULT NULL AFTER startseite;

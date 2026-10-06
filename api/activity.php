@@ -3,6 +3,12 @@
  * Aktivitätskalorien API
  *
  * POST   /api/activity.php  Body: { "kcal": 350, "bezeichnung": "Laufen 5km", "datum": "2026-06-22" }
+ *        optional "ersetzen": true → ersetzt API-Einträge gleicher Bezeichnung an diesem Tag
+ * POST   /api/activity.php  Body: { "schritte": 8432, "datum": "2026-06-22" }
+ *        Server rechnet kcal = Schritte × Schrittlänge (m) × 0,00057 × Gewicht
+ *        (Schrittlänge aus dem Profil bzw. Körpergröße, Gewicht = letzte Messung
+ *        an/vor dem Tag) und ERSETZT den Schritte-Eintrag des Tages (idempotent –
+ *        der Aufruf darf beliebig oft mit dem aktuellen Tagesstand kommen)
  * GET    /api/activity.php?datum=2026-06-22&exclude_workout=1
  * DELETE /api/activity.php  Body: { "id": 1 }
  *
@@ -17,6 +23,7 @@
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/ui.php';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -95,21 +102,89 @@ if ($method === 'GET') {
 }
 
 // ─── POST ─────────────────────────────────────────────────────────────────────
+// Schritte → kcal: Strecke (Schritte × Schrittlänge) × 0,57 kcal pro kg und km
+const KCAL_PRO_KG_UND_METER = 0.00057;
+
 if ($method === 'POST') {
-    $body        = json_decode(file_get_contents('php://input'), true) ?? [];
+    $body  = json_decode(file_get_contents('php://input'), true) ?? [];
+    $datum = preg_match('/^\d{4}-\d{2}-\d{2}$/', $body['datum'] ?? '')
+             ? $body['datum'] : date('Y-m-d');
+
+    // ── Schritte-Modus: ein Eintrag pro Tag (quelle = 'schritte'), wird ersetzt ──
+    if (array_key_exists('schritte', $body)) {
+        $schritte = filter_var($body['schritte'], FILTER_VALIDATE_INT);
+        if ($schritte === false || $schritte < 0 || $schritte > 200000) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'schritte muss eine ganze Zahl zwischen 0 und 200000 sein']);
+            exit;
+        }
+        // Gewicht: letzte Messung an/vor dem Tag, sonst die früheste vorhandene
+        $stmt = $db->prepare("SELECT kg FROM gewicht WHERE user_id = ?
+                              ORDER BY (datum <= ?) DESC,
+                                       CASE WHEN datum <= ? THEN datum END DESC,
+                                       datum ASC, id DESC
+                              LIMIT 1");
+        $stmt->bind_param('iss', $userId, $datum, $datum);
+        $stmt->execute();
+        $kg = (float)($stmt->get_result()->fetch_assoc()['kg'] ?? 0);
+        if ($kg <= 0) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Kein Gewicht hinterlegt – bitte zuerst im Profil eintragen']);
+            exit;
+        }
+        $stmt = $db->prepare("SELECT * FROM profil WHERE user_id = ? LIMIT 1");
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $schrittM    = schrittlaengeM($stmt->get_result()->fetch_assoc() ?: []);
+        $kcal        = (int)round($schritte * $schrittM * KCAL_PRO_KG_UND_METER * $kg);
+        $bezeichnung = substr(trim($body['bezeichnung'] ?? '') ?: 'Schritte', 0, 255);
+
+        $db->begin_transaction();
+        $stmt = $db->prepare("DELETE FROM aktivitaet_log WHERE user_id = ? AND datum = ? AND quelle = 'schritte'");
+        $stmt->bind_param('is', $userId, $datum);
+        $stmt->execute();
+        $ersetzt = $stmt->affected_rows;
+        $id = null;
+        if ($kcal > 0) {   // 0 Schritte → Eintrag des Tages nur entfernen
+            $stmt = $db->prepare("INSERT INTO aktivitaet_log (user_id, datum, bezeichnung, kcal, quelle) VALUES (?, ?, ?, ?, 'schritte')");
+            $stmt->bind_param('issi', $userId, $datum, $bezeichnung, $kcal);
+            $stmt->execute();
+            $id = $db->insert_id;
+        }
+        $db->commit();
+        echo json_encode(['ok' => true, 'id' => $id, 'datum' => $datum, 'bezeichnung' => $bezeichnung,
+                          'schritte' => $schritte, 'schrittlaenge_m' => $schrittM, 'kg' => $kg,
+                          'kcal' => $kcal, 'ersetzt' => $ersetzt]);
+        exit;
+    }
+
+    // ── kcal-Modus ────────────────────────────────────────────────────────────
     $kcal        = (int)($body['kcal'] ?? 0);
     $bezeichnung = substr(trim($body['bezeichnung'] ?? 'Training'), 0, 255);
-    $datum       = preg_match('/^\d{4}-\d{2}-\d{2}$/', $body['datum'] ?? '')
-                   ? $body['datum'] : date('Y-m-d');
+    $ersetzen    = filter_var($body['ersetzen'] ?? false, FILTER_VALIDATE_BOOLEAN);
     if ($kcal <= 0 || $kcal > 10000) {
         http_response_code(400);
         echo json_encode(['ok' => false, 'error' => 'kcal muss zwischen 1 und 10000 liegen']);
         exit;
     }
-    $stmt = $db->prepare("INSERT INTO aktivitaet_log (user_id, datum, bezeichnung, kcal, quelle) VALUES (?, ?, ?, ?, 'api')");
-    $stmt->bind_param('issi', $userId, $datum, $bezeichnung, $kcal);
+    $db->begin_transaction();
+    $ersetzt = 0;
+    if ($ersetzen) {
+        // Nur per API angelegte Einträge – manuell im Profil erfasste bleiben
+        $stmt = $db->prepare("DELETE FROM aktivitaet_log WHERE user_id = ? AND datum = ? AND bezeichnung = ? AND quelle = 'api'");
+        $stmt->bind_param('iss', $userId, $datum, $bezeichnung);
+        $stmt->execute();
+        $ersetzt = $stmt->affected_rows;
+    }
+    // In der App (Session) erfasst → 'manuell', per API-Key → 'api'
+    $quelle = $sessionUser ? 'manuell' : 'api';
+    $stmt = $db->prepare("INSERT INTO aktivitaet_log (user_id, datum, bezeichnung, kcal, quelle) VALUES (?, ?, ?, ?, ?)");
+    $stmt->bind_param('issis', $userId, $datum, $bezeichnung, $kcal, $quelle);
     $stmt->execute();
-    echo json_encode(['ok' => true, 'id' => $db->insert_id, 'datum' => $datum, 'bezeichnung' => $bezeichnung, 'kcal' => $kcal]);
+    $id = $db->insert_id;   // vor commit() lesen
+    $db->commit();
+    echo json_encode(['ok' => true, 'id' => $id, 'datum' => $datum, 'bezeichnung' => $bezeichnung,
+                      'kcal' => $kcal, 'ersetzt' => $ersetzt]);
     exit;
 }
 

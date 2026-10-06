@@ -154,9 +154,23 @@ $actEndpoints = [
         'method' => 'POST',
         'path'   => 'activity.php',
         'desc'   => 'Aktivität eintragen',
-        'params' => [],
+        'params' => [
+            'ersetzen' => 'Optional, true: ersetzt per API angelegte Einträge mit gleicher Bezeichnung an diesem Tag (z.B. „Aktive Energie“ mehrmals täglich senden). In der App erfasste Einträge bleiben.',
+        ],
         'example_req' => '{"kcal": 350, "bezeichnung": "Laufen 5km", "datum": "2026-06-22", "user_id": ' . $currentUser['id'] . ', "api_key": "..."}',
-        'example_res' => '{"ok":true,"id":1,"datum":"2026-06-22","bezeichnung":"Laufen 5km","kcal":350}',
+        'example_res' => '{"ok":true,"id":1,"datum":"2026-06-22","bezeichnung":"Laufen 5km","kcal":350,"ersetzt":0}',
+    ],
+    [
+        'method' => 'POST',
+        'path'   => 'activity.php',
+        'desc'   => 'Schritte eintragen – der Server rechnet kcal = Schritte × Schrittlänge (m) × 0,00057 × Gewicht und ersetzt den Schritte-Eintrag des Tages. Schrittlänge aus den Einstellungen (leer = Körpergröße × 0,415 bzw. 0,413), Gewicht = letzte Messung an/vor dem Tag. Darf beliebig oft mit dem aktuellen Tagesstand aufgerufen werden.',
+        'params' => [
+            'schritte'    => 'Schritte des Tages gesamt (0–200000; 0 entfernt den Eintrag)',
+            'datum'       => 'Optional, YYYY-MM-DD (Standard: heute)',
+            'bezeichnung' => 'Optional (Standard: „Schritte“)',
+        ],
+        'example_req' => '{"schritte": 8432, "user_id": ' . $currentUser['id'] . ', "api_key": "..."}',
+        'example_res' => '{"ok":true,"id":46,"datum":"2026-06-22","bezeichnung":"Schritte","schritte":8432,"schrittlaenge_m":0.755,"kg":81.7,"kcal":296,"ersetzt":1}',
     ],
     [
         'method' => 'DELETE',
@@ -214,6 +228,18 @@ foreach ($actEndpoints as $ep): ?>
             <code>kg</code> (Messung), <code>user_id</code> (<?= $currentUser['id'] ?>),
             <code>api_key</code> (s.o.)</li>
         <li>Aktion: <strong>Inhalt der URL abrufen</strong> → Methode: POST, Body: Wörterbuch als JSON</li>
+    </ol>
+    <p style="font-size:.85rem;margin:1.25rem 0 .75rem;">
+        Shortcut für Schritte aus Apple Health (z.B. Pebble mit Health-Sync):
+    </p>
+    <ol style="font-size:.82rem;color:var(--muted);padding-left:1.25rem;margin:0;line-height:2;">
+        <li>Aktion: <strong>Gesundheitsmuster suchen</strong> → Schritte, Startdatum „heute“, gruppiert nach Tag</li>
+        <li>Aktion: <strong>Statistik berechnen</strong> → Summe der Schritte</li>
+        <li>Aktion: <strong>Wörterbuch</strong> mit Schlüsseln:
+            <code>schritte</code> (Summe als Zahl), <code>user_id</code> (<?= $currentUser['id'] ?>),
+            <code>api_key</code> (s.o.)</li>
+        <li>Aktion: <strong>Inhalt der URL abrufen</strong> → <code>https://k.eick-hoff.de/api/activity.php</code>, POST, Body: Wörterbuch als JSON</li>
+        <li>Automation: beim Öffnen der App <em>und</em> täglich um 23:55 („Sofort ausführen“) – mehrfaches Senden ist unbedenklich, der Tageswert wird ersetzt.</li>
     </ol>
 </div>
 
