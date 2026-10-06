@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/layout.php';
 require_once __DIR__ . '/includes/bmr.php';
+require_once __DIR__ . '/includes/ui.php';
 $currentUser = requireLogin();
 $userId      = $currentUser['id'];
 $db          = db();
@@ -27,145 +28,112 @@ $defizit  = (int)($profil['defizit_kcal'] ?? 500);
 $zielKcal = $tdee ? max(1200, $tdee - $defizit) : null;
 
 renderHeader('Profil', 'profil');
+
+if ($kg && !empty($profil['groesse_cm'])) {
+    $bmi = $kg / (($profil['groesse_cm'] / 100) ** 2);
+    // WHO-Klassifikation
+    if     ($bmi < 18.5) { $bmiLabel = 'Untergewicht';        $bmiColor = 'var(--prot)'; }
+    elseif ($bmi < 25)   { $bmiLabel = 'Normalgewicht';       $bmiColor = 'var(--accent)'; }
+    elseif ($bmi < 30)   { $bmiLabel = 'Übergewicht';         $bmiColor = 'var(--quick)'; }
+    elseif ($bmi < 35)   { $bmiLabel = 'Adipositas Grad I';   $bmiColor = 'var(--fat)'; }
+    elseif ($bmi < 40)   { $bmiLabel = 'Adipositas Grad II';  $bmiColor = 'var(--danger)'; }
+    else                 { $bmiLabel = 'Adipositas Grad III'; $bmiColor = 'var(--danger)'; }
+}
 ?>
 
-<div class="page-header">
-    <h1><i class="bi bi-person-circle text-accent me-1"></i> Profil</h1>
-    <a href="/einstellungen.php"
-       style="color:var(--muted);text-decoration:none;font-size:1.4rem;padding:.25rem .5rem;"
-       title="Einstellungen">
-        <i class="bi bi-gear"></i>
-    </a>
-</div>
-
-
+<?php renderPageHeader('Profil',
+    '<a href="/einstellungen.php" class="icon-btn" aria-label="Einstellungen"><i class="bi bi-gear"></i></a>',
+    $currentUser['display_name'] ?? ''); ?>
 
 <!-- ── Berechnete Werte ───────────────────────────────────────── -->
 <?php if ($tdee): ?>
-<div class="kt-card" style="margin-bottom:.75rem;margin-top:.75rem;position:relative;padding-top:1rem;">
-    <div class="kt-info-card-wrap" style="top:-.1rem;right:.1rem"><button class="kt-info-btn" type="button" aria-label="Info"><i class="bi bi-info-circle"></i></button><div class="kt-tooltip" style="width:300px;">Berechnet per <strong>Mifflin-St.-Jeor-Formel</strong> aus Gewicht, Größe, Alter und Geschlecht.<br><br>
+<section class="bento" style="margin-top:.35rem;">
+    <div class="tile tile--wide">
+        <div class="kt-info-card-wrap"><button class="kt-info-btn" type="button" aria-label="Info zur Berechnung"><i class="bi bi-info-circle"></i></button><div class="kt-tooltip">Berechnet per <strong>Mifflin-St.-Jeor-Formel</strong> aus Gewicht, Größe, Alter und Geschlecht.<br><br>
 <strong>Grundumsatz (BMR)</strong> – Energieverbrauch in völliger Ruhe, ohne jede Bewegung.<br><br>
 <strong>Gesamtumsatz (TDEE)</strong> – BMR × Aktivitätsfaktor. Sitzend = 1,2 · Sehr aktiv = bis 1,9. Je ehrlicher die Einschätzung, desto genauer das Ziel.<br><br>
 <strong>Kalorienziel</strong> – TDEE minus Defizit. 300–500 kcal Defizit = nachhaltiges Abnehmen ohne Muskelverlust. Über 700 kcal ist langfristig kontraproduktiv.<br><br>
 <strong>BMI</strong> (Körpergewicht ÷ Größe²) nach WHO: unter 18,5 = Untergewicht · 18,5–24,9 = Normalgewicht · 25–29,9 = Übergewicht · 30–34,9 = Adipositas I · 35–39,9 = Adipositas II · ab 40 = Adipositas III. Der BMI berücksichtigt keine Muskelmasse – bei sportlichen Menschen nur bedingt aussagekräftig.<br><br>
 <strong>Tipp:</strong> Gewicht regelmäßig eintragen – besonders bei größeren Veränderungen verbessert das die Genauigkeit deutlich.</div></div>
-<div style="font-size:.78rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem;">Kalorienziel</div>
-
-    <div style="display:flex;justify-content:space-between;margin-bottom:.6rem;">
-        <span style="color:var(--muted);font-size:.82rem;">Grundumsatz (TDEE)</span>
-        <span style="font-weight:700;"><?= number_format($tdee, 0, ',', '.') ?> kcal</span>
+        <div class="tile__label"><span>Kalorienziel heute</span></div>
+        <span class="tile__val" style="font-size:2.4rem;color:var(--accent);"><?= fmtZahl($zielKcal) ?><small> kcal</small></span>
+        <div class="tile__sub">TDEE − Defizit, plus Aktivität des Tages</div>
     </div>
-    <div style="display:flex;justify-content:space-between;margin-bottom:.6rem;">
-        <span style="color:var(--muted);font-size:.82rem;">Defizit</span>
-        <span style="font-weight:700;color:var(--warn);">− <?= $defizit ?> kcal</span>
+    <div class="tile">
+        <div class="tile__label"><span>Gesamtumsatz</span><span>TDEE</span></div>
+        <span class="tile__val"><?= fmtZahl($tdee) ?><small> kcal</small></span>
     </div>
-    <div style="border-top:1px solid var(--border);padding-top:.6rem;display:flex;justify-content:space-between;">
-        <span style="color:var(--muted);font-size:.82rem;">Kalorienziel heute</span>
-        <span style="font-weight:800;font-size:1.05rem;color:var(--accent);"><?= number_format($zielKcal, 0, ',', '.') ?> kcal</span>
+    <div class="tile">
+        <div class="tile__label"><span>Defizit</span></div>
+        <span class="tile__val" style="color:var(--quick);">−<?= $defizit ?><small> kcal</small></span>
     </div>
-    <?php if ($kg):
-        $bmi = $kg / (($profil['groesse_cm'] / 100) ** 2);
-        // WHO-Klassifikation
-        if     ($bmi < 18.5) { $bmiLabel = 'Untergewicht';        $bmiColor = '#60a5fa'; }
-        elseif ($bmi < 25)   { $bmiLabel = 'Normalgewicht';       $bmiColor = 'var(--accent)'; }
-        elseif ($bmi < 30)   { $bmiLabel = 'Übergewicht';         $bmiColor = '#facc15'; }
-        elseif ($bmi < 35)   { $bmiLabel = 'Adipositas Grad I';   $bmiColor = '#fb923c'; }
-        elseif ($bmi < 40)   { $bmiLabel = 'Adipositas Grad II';  $bmiColor = '#f87171'; }
-        else                 { $bmiLabel = 'Adipositas Grad III'; $bmiColor = '#ef4444'; }
-    ?>
-    <div style="margin-top:.5rem;font-size:.75rem;color:var(--muted);text-align:center;">
-        BMI: <span style="font-weight:700;color:<?= $bmiColor ?>;"><?= number_format($bmi, 1, ',', '') ?></span>
-        <span style="color:<?= $bmiColor ?>;">(<?= $bmiLabel ?>)</span>
+    <?php if (isset($bmi)): ?>
+    <div class="tile tile--wide" style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;">
+        <div>
+            <div class="tile__label"><span>BMI</span></div>
+            <span class="tile__val" style="color:<?= $bmiColor ?>;"><?= number_format($bmi, 1, ',', '') ?></span>
+        </div>
+        <span class="hx-chip" style="color:<?= $bmiColor ?>;font-size:.8rem;"><?= $bmiLabel ?></span>
     </div>
     <?php endif; ?>
-
-</div>
+</section>
 <?php else: ?>
-<div class="kt-card" style="margin-bottom:.75rem;margin-top:.75rem;text-align:center;color:var(--muted);">
+<div class="kt-card text-center text-muted" style="margin-top:.5rem;">
     <i class="bi bi-calculator" style="font-size:1.8rem;display:block;margin-bottom:.5rem;"></i>
-    <div style="font-size:.88rem;">
+    <div style="font-size:.9rem;">
         Trage dein Gewicht ein um deinen Grundumsatz und dein Kalorienziel zu berechnen.
     </div>
 </div>
 <?php endif; ?>
 
 <!-- ── Gewicht: Erfassung + Verlauf (eine Card) ─────────────── -->
-<div class="kt-card" style="margin:1rem 1rem .75rem;position:relative;">
-
-    <!-- Info-Icon -->
-    <div class="kt-info-card-wrap" style="top:-.1rem;right:.1rem"><button class="kt-info-btn" type="button" aria-label="Info"><i class="bi bi-info-circle"></i></button><div class="kt-tooltip" style="width:300px">Trage dein Gewicht täglich ein – am besten morgens nüchtern für vergleichbare Werte.<br><br>
-<strong>Gelbe gestrichelte Linie</strong> – dein eingetragenes Gewicht. Schwankungen von 1–2 kg täglich sind normal (Wasser, Verdauung).<br><br>
-<strong>Grüne Linie</strong> – EWMA-Trend: filtert Schwankungen heraus und zeigt die echte Richtung. Neuere Messungen werden stärker gewichtet.<br><br>
+<div class="section-label"><span>Gewicht</span>
+    <button type="button" class="chip-btn" onclick="toggleGewichtHistorie()"><i class="bi bi-clock-history"></i> Verlauf</button>
+</div>
+<div class="kt-card">
+    <div class="kt-info-card-wrap"><button class="kt-info-btn" type="button" aria-label="Info zum Gewicht"><i class="bi bi-info-circle"></i></button><div class="kt-tooltip">Trage dein Gewicht täglich ein – am besten morgens nüchtern für vergleichbare Werte.<br><br>
+<strong>Graue gestrichelte Linie</strong> – dein eingetragenes Gewicht. Schwankungen von 1–2 kg täglich sind normal (Wasser, Verdauung).<br><br>
+<strong>Limettengrüne Linie</strong> – EWMA-Trend: filtert Schwankungen heraus und zeigt die echte Richtung. Neuere Messungen werden stärker gewichtet.<br><br>
 <strong>Trend/Woche</strong> – wöchentliche Veränderung des geglätteten Gewichts. Realistisches Abnahmetempo: 0,3–0,7 kg/Woche.<br><br>
 <strong>Verlauf</strong> – zeigt deine letzten 7 Einträge. Zum Löschen nach links wischen.</div></div>
 
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
-        <div style="font-size:.78rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Gewicht</div>
-        <button onclick="toggleGewichtHistorie()"
-                style="display:flex;align-items:center;gap:.3rem;background:var(--surface2);
-                       border:1px solid var(--border);border-radius:8px;padding:.25rem .6rem;
-                       color:var(--muted);font-size:.72rem;font-weight:600;cursor:pointer;">
-            <i class="bi bi-clock-history" style="font-size:.75rem;"></i> Verlauf
-        </button>
-    </div>
-
     <!-- Eingabe -->
-    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.5rem;">
-        <input type="number" id="gewichtInput" step="0.1" min="20" max="300" inputmode="decimal"
-               value="<?= $kg ? number_format($kg, 1, '.', '') : '' ?>"
-               placeholder="82,5"
-               style="flex:1;background:var(--surface2);border:1px solid var(--border);
-                      color:var(--text);border-radius:12px;padding:.6rem .85rem;
-                      font-size:1.2rem;font-weight:700;outline:none;">
-        <span style="color:var(--muted);font-size:.9rem;flex-shrink:0;">kg</span>
-        <button id="btnSaveGewicht" onclick="saveGewicht()"
-                style="background:var(--accent);border:none;border-radius:12px;
-                       padding:.6rem 1rem;color:#000;font-weight:700;font-size:.88rem;
-                       white-space:nowrap;flex-shrink:0;">
+    <div class="input-row">
+        <div class="big-input">
+            <input type="number" id="gewichtInput" step="0.1" min="20" max="300" inputmode="decimal"
+                   value="<?= $kg ? number_format($kg, 1, '.', '') : '' ?>"
+                   placeholder="82,5" aria-label="Gewicht in kg">
+            <span>kg</span>
+        </div>
+        <button id="btnSaveGewicht" class="icon-btn icon-btn--accent" onclick="saveGewicht()" aria-label="Gewicht speichern">
             <i class="bi bi-plus-lg" id="gewichtIcon"></i>
         </button>
     </div>
     <?php if ($kg && !empty($gewicht['datum'])): ?>
-    <div style="font-size:.75rem;color:var(--muted);margin-bottom:.75rem;">
+    <div class="tile__sub" style="margin-top:.4rem;">
         Zuletzt: <?= number_format((float)$gewicht['kg'], 1, ',', '') ?> kg
         am <?= date('d.m.Y', strtotime($gewicht['datum'])) ?>
     </div>
     <?php endif; ?>
 
     <!-- 7-Tage-Historie (eingeklappt) -->
-    <div id="gewichtHistorieWrap" style="display:none;margin-bottom:.75rem;">
-        <div style="font-size:.75rem;color:var(--muted);font-weight:600;margin-bottom:.5rem;">
-            Letzte 7 Tage
-        </div>
-        <div id="gewichtHistorieList" style="display:flex;flex-direction:column;gap:.35rem;"></div>
+    <div id="gewichtHistorieWrap" style="display:none;margin-top:.9rem;">
+        <div class="tile__label" style="margin-bottom:.45rem;">Letzte 7 Einträge</div>
+        <div id="gewichtHistorieList" class="mini-list"></div>
     </div>
 
-    <!-- Trennlinie vor Chart -->
     <?php if (count($gewichtHistory) > 1): ?>
-    <div style="border-top:1px solid var(--border);margin-bottom:.75rem;"></div>
-
-    <!-- Zeitraum-Auswahl -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;">
-        <div style="font-size:.78rem;color:var(--muted);font-weight:600;" id="chartTitle">
-            Verlauf (<?= count($gewichtHistory) ?> Einträge)
-        </div>
-        <div style="display:flex;gap:.3rem;">
-            <?php foreach (['1M'=>'1M','3M'=>'3M','6M'=>'6M','all'=>'Alle'] as $key => $lbl): ?>
-            <button onclick="setPeriod('<?= $key ?>')" id="btn-<?= $key ?>"
-                    style="padding:.25rem .55rem;font-size:.72rem;font-weight:700;border-radius:7px;
-                           border:1px solid var(--border);background:var(--surface);
-                           color:var(--muted);cursor:pointer;transition:all .15s;">
-                <?= $lbl ?>
-            </button>
-            <?php endforeach; ?>
-        </div>
+    <div class="seg" style="margin-top:1rem;" id="periodSeg">
+        <?php foreach (['1M'=>'1 M','3M'=>'3 M','6M'=>'6 M','all'=>'Alle'] as $key => $lbl): ?>
+        <button type="button" onclick="setPeriod('<?= $key ?>')" id="btn-<?= $key ?>"><?= $lbl ?></button>
+        <?php endforeach; ?>
     </div>
-    <canvas id="weightChart" height="120"></canvas>
-    <div id="chartStats" style="display:flex;justify-content:space-around;margin-top:.75rem;
-         font-size:.75rem;text-align:center;color:var(--muted);"></div>
+    <div class="tile__sub" id="chartTitle" style="margin:.6rem 0 .3rem;">
+        Verlauf (<?= count($gewichtHistory) ?> Einträge)
+    </div>
+    <canvas id="weightChart" height="150"></canvas>
+    <div id="chartStats" class="mini-stats"></div>
     <?php endif; ?>
-
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -178,6 +146,8 @@ const allData = <?= json_encode(array_reverse(array_map(
 
 let chart = null;
 let activePeriod = '1M';
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C   = { accent: css('--accent'), danger: css('--danger'), muted: css('--muted'), faint: css('--faint'), border: css('--border'), text: css('--text') };
 
 function filterByPeriod(period) {
     if (period === 'all') return allData;
@@ -201,12 +171,9 @@ function ewma(weights, alpha) {
 function setPeriod(period) {
     activePeriod = period;
 
-    // Buttons stylen
+    // Segment-Umschalter
     ['1M','3M','6M','all'].forEach(p => {
-        const btn = document.getElementById('btn-' + p);
-        btn.style.background = p === period ? 'var(--accent)' : 'var(--surface)';
-        btn.style.color      = p === period ? '#000'          : 'var(--muted)';
-        btn.style.borderColor= p === period ? 'var(--accent)' : 'var(--border)';
+        document.getElementById('btn-' + p).classList.toggle('active', p === period);
     });
 
     const data = filterByPeriod(period);
@@ -238,8 +205,8 @@ function setPeriod(period) {
     const ewmaSlope    = (trendData[trendData.length-1] - trendData[0]) / daySpan;
     const slopePerWeek = ewmaSlope * 7;
     const trendStr  = (slopePerWeek >= 0 ? '+' : '') + slopePerWeek.toFixed(2);
-    const trendColor = slopePerWeek < -0.05 ? '#4ade80'
-                     : slopePerWeek >  0.05 ? '#f87171'
+    const trendColor = slopePerWeek < -0.05 ? 'var(--accent)'
+                     : slopePerWeek >  0.05 ? 'var(--danger)'
                      : 'var(--muted)';
     const trendIcon  = slopePerWeek < -0.05 ? '↓' : slopePerWeek > 0.05 ? '↑' : '→';
 
@@ -250,13 +217,14 @@ function setPeriod(period) {
     const first = data[0].kg, last = data[data.length-1].kg;
     const diff  = last - first;
     const diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
-    const diffColor = diff < 0 ? '#4ade80' : diff > 0 ? '#f87171' : 'var(--muted)';
+    const diffColor = diff < 0 ? 'var(--accent)' : diff > 0 ? 'var(--danger)' : 'var(--muted)';
     const currentTrend = trendData[trendData.length - 1];
+    const de = v => v.replace('.', ',');
     document.getElementById('chartStats').innerHTML = `
-        <div><div style="font-weight:700;color:var(--text);">${first.toFixed(1)} kg</div><div>Start</div></div>
-        <div><div style="font-weight:700;color:${diffColor};">${diffStr} kg</div><div>Veränderung</div></div>
-        <div><div style="font-weight:700;color:var(--text);">${currentTrend.toFixed(1)} kg</div><div>Aktuell Trend</div></div>
-        <div><div style="font-weight:700;color:${trendColor};">${trendIcon} ${trendStr} kg</div><div>Trend/Woche</div></div>
+        <div><b>${de(first.toFixed(1))}</b><small>Start</small></div>
+        <div><b style="color:${diffColor};">${de(diffStr)}</b><small>Veränderung</small></div>
+        <div><b>${de(currentTrend.toFixed(1))}</b><small>Trend aktuell</small></div>
+        <div><b style="color:${trendColor};">${trendIcon} ${de(trendStr)}</b><small>kg / Woche</small></div>
     `;
 
     const paddedLabels  = ['', ...labels,  ''];
@@ -279,10 +247,10 @@ function setPeriod(period) {
                     {
                         label: 'Gewicht',
                         data: paddedWeights,
-                        borderColor: '#facc15',
+                        borderColor: C.faint,
                         backgroundColor: 'transparent',
-                        borderWidth: 2,
-                        borderDash: [6, 4],
+                        borderWidth: 1.5,
+                        borderDash: [5, 4],
                         pointRadius: 0,
                         fill: false,
                         tension: 0,
@@ -291,8 +259,8 @@ function setPeriod(period) {
                     {
                         label: 'Trend',
                         data: paddedTrend,
-                        borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,.1)',
-                        borderWidth: 2, pointRadius: 0, pointHoverRadius: 0, pointBackgroundColor: '#4ade80',
+                        borderColor: C.accent, backgroundColor: css('--accent-soft'),
+                        borderWidth: 2.2, pointRadius: 0, pointHoverRadius: 0, pointBackgroundColor: C.accent,
                         fill: true, tension: 0.35, spanGaps: false
                     }
                 ]
@@ -312,10 +280,10 @@ function setPeriod(period) {
                     }
                 },
                 scales: {
-                    x: { ticks: { color:'#7c7f8e', font:{size:10}, maxTicksLimit: 8 },
-                         grid: { color:'rgba(255,255,255,.05)' }, offset: true },
-                    y: { ticks: { color:'#7c7f8e', font:{size:10} },
-                         grid: { color:'rgba(255,255,255,.05)' },
+                    x: { ticks: { color: C.muted, font:{size:10, family: css('--font')}, maxTicksLimit: 6, maxRotation: 0 },
+                         grid: { display: false }, border: { display: false }, offset: true },
+                    y: { ticks: { color: C.muted, font:{size:10, family: css('--font')}, maxTicksLimit: 5 },
+                         grid: { color: C.border }, border: { display: false },
                          min: minW - yPad, max: maxW + yPad }
                 }
             }
@@ -326,7 +294,8 @@ function setPeriod(period) {
 // Standard: 1M, oder 'all' wenn weniger als 2 Monate Daten
 const oldest = new Date(allData[0]?.datum);
 const monthsOfData = (new Date() - oldest) / (1000*60*60*24*30);
-setPeriod(monthsOfData < 1.5 ? 'all' : '1M');
+// Chart (und Zeitraum-Buttons) existiert nur ab 2 Messungen
+if (allData.length > 1) setPeriod(monthsOfData < 1.5 ? 'all' : '1M');
 </script>
 
 <script>
@@ -336,8 +305,8 @@ async function saveGewicht() {
     const btn  = document.getElementById('btnSaveGewicht');
     const icon = document.getElementById('gewichtIcon');
     if (!val || val < 20 || val > 300) {
-        icon.className = 'bi bi-x-lg'; btn.style.background = '#ef4444';
-        setTimeout(() => { icon.className = 'bi bi-plus-lg'; btn.style.background = 'var(--accent)'; }, 1500);
+        icon.className = 'bi bi-x-lg'; btn.style.background = 'var(--danger)';
+        setTimeout(() => { icon.className = 'bi bi-plus-lg'; btn.style.background = ''; }, 1500);
         return;
     }
     btn.disabled = true;
@@ -352,8 +321,8 @@ async function saveGewicht() {
             setTimeout(() => location.reload(), 400);
         } else { throw new Error(d.error); }
     } catch(e) {
-        icon.className = 'bi bi-x-lg'; btn.style.background = '#ef4444';
-        setTimeout(() => { icon.className = 'bi bi-plus-lg'; btn.style.background = 'var(--accent)'; }, 1500);
+        icon.className = 'bi bi-x-lg'; btn.style.background = 'var(--danger)';
+        setTimeout(() => { icon.className = 'bi bi-plus-lg'; btn.style.background = ''; }, 1500);
     } finally { btn.disabled = false; }
 }
 document.getElementById('gewichtInput').addEventListener('keyup', e => {
@@ -377,12 +346,12 @@ function toggleGewichtHistorie() {
 
 async function loadGewichtHistorie() {
     const list = document.getElementById('gewichtHistorieList');
-    list.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:.25rem 0;">Lädt…</div>';
+    list.innerHTML = '<div class="tile__sub">Lädt…</div>';
     try {
         const r = await fetch('/api/weight.php?limit=7');
         const d = await r.json();
         if (!d.ok || !d.eintraege.length) {
-            list.innerHTML = '<div style="color:var(--muted);font-size:.8rem;">Keine Einträge</div>';
+            list.innerHTML = '<div class="tile__sub">Keine Einträge</div>';
             return;
         }
         list.innerHTML = '';
@@ -391,25 +360,19 @@ async function loadGewichtHistorie() {
             const dateStr = datum.toLocaleDateString('de-DE', {weekday:'short', day:'2-digit', month:'2-digit'});
             const item    = document.createElement('div');
             item.dataset.id = e.id;
-            item.style.cssText = 'position:relative;overflow:hidden;border-radius:10px;';
+            item.className = 'mini-swipe';
             item.innerHTML = `
-                <div class="gw-del" style="position:absolute;right:0;top:0;bottom:0;width:70px;
-                    background:var(--danger);display:flex;align-items:center;justify-content:center;
-                    border-radius:0 10px 10px 0;cursor:pointer;">
-                    <i class="bi bi-trash3" style="color:#fff;font-size:1rem;"></i>
-                </div>
-                <div class="gw-row" style="position:relative;background:var(--surface2);
-                    border-radius:10px;padding:.5rem .75rem;display:flex;align-items:center;
-                    justify-content:space-between;transition:transform .25s ease;">
-                    <span style="font-size:.82rem;color:var(--muted);">${dateStr}</span>
-                    <span style="font-size:.9rem;font-weight:700;color:var(--text);">${parseFloat(e.kg).toFixed(1)} kg</span>
+                <button type="button" class="gw-del mini-swipe__del" aria-label="Löschen"><i class="bi bi-trash3"></i></button>
+                <div class="gw-row mini-swipe__row">
+                    <span class="mini-swipe__date">${dateStr}</span>
+                    <b>${parseFloat(e.kg).toFixed(1).replace('.', ',')} kg</b>
                 </div>`;
             item.querySelector('.gw-del').addEventListener('click', () => deleteGewicht(e.id, item));
             list.appendChild(item);
             initGewichtSwipe(item);
         });
     } catch(err) {
-        list.innerHTML = '<div style="color:var(--danger);font-size:.8rem;">Fehler beim Laden</div>';
+        list.innerHTML = '<div class="tile__sub text-danger">Fehler beim Laden</div>';
     }
 }
 
@@ -450,56 +413,71 @@ async function deleteGewicht(id, item) {
 </script>
 
 <!-- ── Aktivitätskalorien ──────────────────────────────────────── -->
-<div class="kt-card" style="margin:.75rem 1rem;position:relative;padding-top:1rem;">
-
-    <!-- Info-Icon -->
-    <div class="kt-info-card-wrap" style="top:-.1rem;right:.1rem;"><button class="kt-info-btn" type="button" aria-label="Info"><i class="bi bi-info-circle"></i></button><div class="kt-tooltip" style="top:auto;bottom:calc(100% + .3rem);">Aktivitätskalorien werden zum täglichen Kalorienziel addiert – du darfst also mehr essen wenn du dich bewegt hast.<br><br><strong>Eintragen</strong> – Bezeichnung optional, kcal erforderlich. Der Eintrag gilt für den heutigen Tag.<br><br><strong>Verlauf</strong> – zeigt deine letzten 7 Aktivitätseinträge. Zum Löschen nach links wischen.<br><br><strong>Tipp:</strong> Du kannst Aktivitätskalorien auch automatisch per Apple Shortcuts oder API eintragen lassen – z.B. direkt von deiner Smartwatch.</div></div>
-
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;">
-        <div style="font-size:.78rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;">
-            Aktivitätskalorien
-        </div>
-        <button onclick="toggleAktivHistorie()"
-                style="display:flex;align-items:center;gap:.3rem;background:var(--surface2);
-                       border:1px solid var(--border);border-radius:8px;padding:.25rem .6rem;
-                       color:var(--muted);font-size:.72rem;font-weight:600;cursor:pointer;">
-            <i class="bi bi-clock-history" style="font-size:.75rem;"></i> Verlauf
-        </button>
-    </div>
+<div class="section-label" id="aktivitaet"><span>Aktivität</span>
+    <button type="button" class="chip-btn" onclick="toggleAktivHistorie()"><i class="bi bi-clock-history"></i> Verlauf</button>
+</div>
+<div class="kt-card">
+    <div class="kt-info-card-wrap"><button class="kt-info-btn" type="button" aria-label="Info zu Aktivitätskalorien"><i class="bi bi-info-circle"></i></button><div class="kt-tooltip" style="top:auto;bottom:calc(100% + .3rem);">Aktivitätskalorien werden zum täglichen Kalorienziel addiert – du darfst also mehr essen wenn du dich bewegt hast.<br><br><strong>Eintragen</strong> – Bezeichnung optional, kcal erforderlich. Der Eintrag gilt für den heutigen Tag.<br><br><strong>Verlauf</strong> – zeigt deine letzten 7 Aktivitätseinträge. Zum Löschen nach links wischen.<br><br><strong>Tipp:</strong> Du kannst Aktivitätskalorien auch automatisch per Apple Shortcuts oder API eintragen lassen – z.B. direkt von deiner Smartwatch.</div></div>
 
     <!-- Eingabe -->
-    <div style="display:grid;grid-template-columns:1fr auto auto;gap:.5rem;
-                margin-bottom:.5rem;align-items:center;">
-        <input type="text" id="aktivBezeichnung"
-               placeholder="Bezeichnung (optional)"
-               style="min-width:0;background:var(--surface2);border:1px solid var(--border);
-                      color:var(--text);border-radius:12px;padding:.6rem .85rem;
-                      font-size:.9rem;outline:none;">
-        <input type="number" id="aktivKcal" min="1" max="10000" inputmode="decimal"
-               placeholder="kcal"
-               style="width:72px;background:var(--surface2);border:1px solid var(--border);
-                      color:var(--text);border-radius:12px;padding:.6rem .6rem;
-                      font-size:1rem;font-weight:700;outline:none;">
-        <button id="btnSaveAktiv" onclick="saveAktiv()"
-                style="background:var(--accent);border:none;border-radius:12px;
-                       padding:.6rem .9rem;color:#000;font-weight:700;font-size:.88rem;">
+    <div class="input-row" style="padding-right:1.6rem;">
+        <input type="text" id="aktivBezeichnung" class="kt-input" placeholder="Bezeichnung (optional)" style="flex:1;min-width:0;">
+        <input type="number" id="aktivKcal" class="kt-input" min="1" max="10000" inputmode="decimal"
+               placeholder="kcal" style="width:5.2rem;font-weight:700;" aria-label="Kalorien">
+        <button id="btnSaveAktiv" class="icon-btn icon-btn--accent" onclick="saveAktiv()" aria-label="Aktivität speichern">
             <i class="bi bi-plus-lg" id="aktivIcon"></i>
         </button>
     </div>
-    <div style="font-size:.75rem;color:var(--muted);">
-        Wird zum heutigen Kalorienziel addiert.
-    </div>
+    <div class="tile__sub" style="margin-top:.45rem;">Wird zum heutigen Kalorienziel addiert.</div>
 
     <!-- Verlauf (eingeklappt) -->
-    <div id="aktivHistorieWrap" style="display:none;margin-top:.75rem;">
-        <div style="font-size:.75rem;color:var(--muted);font-weight:600;margin-bottom:.5rem;">
-            Letzte 7 Tage
-        </div>
-        <div id="aktivHistorieList" style="display:flex;flex-direction:column;gap:.35rem;"></div>
+    <div id="aktivHistorieWrap" style="display:none;margin-top:.9rem;">
+        <div class="tile__label" style="margin-bottom:.45rem;">Letzte 7 Tage</div>
+        <div id="aktivHistorieList" class="mini-list"></div>
     </div>
-
 </div>
+
+<style>
+.chip-btn {
+    display: inline-flex; align-items: center; gap: .35rem;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 99px;
+    color: var(--muted); font: 600 .75rem var(--font); letter-spacing: 0; text-transform: none;
+    padding: .35rem .8rem; min-height: 2.25rem; cursor: pointer;
+}
+.input-row { display: flex; align-items: center; gap: .5rem; padding-right: 1.6rem; }
+.big-input {
+    flex: 1; display: flex; align-items: baseline; gap: .35rem;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 14px;
+    padding: .35rem .9rem;
+}
+.big-input:focus-within { border-color: var(--accent); }
+.big-input input {
+    flex: 1; min-width: 0; background: transparent; border: none; color: var(--text);
+    font: 700 1.6rem var(--font); padding: 0; outline: none;
+    font-variant-numeric: tabular-nums;
+}
+.big-input span { color: var(--muted); }
+.mini-list { display: flex; flex-direction: column; gap: .35rem; }
+.mini-swipe { position: relative; overflow: hidden; border-radius: 12px; }
+.mini-swipe__del {
+    position: absolute; right: 0; top: 0; bottom: 0; width: 70px;
+    background: var(--danger); color: #2a0610; border: none;
+    display: flex; align-items: center; justify-content: center; font-size: 1rem;
+}
+.mini-swipe__row {
+    position: relative; background: var(--surface2); border-radius: 12px;
+    padding: .65rem .85rem; min-height: 2.75rem;
+    display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+    transition: transform .25s ease;
+}
+.mini-swipe__date { font-size: .8rem; color: var(--muted); flex-shrink: 0; }
+.mini-swipe__text { font-size: .88rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-swipe__row b { font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.mini-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: .35rem; margin-top: .75rem; text-align: center; }
+.mini-stats > div { background: var(--surface2); border-radius: 12px; padding: .45rem .2rem; }
+.mini-stats b { display: block; font-size: .92rem; font-variant-numeric: tabular-nums; }
+.mini-stats small { font-size: .68rem; color: var(--muted); }
+</style>
 
 <script>
 // ── Aktivität speichern ───────────────────────────────────────────────────────
@@ -509,8 +487,8 @@ async function saveAktiv() {
     const btn  = document.getElementById('btnSaveAktiv');
     const icon = document.getElementById('aktivIcon');
     if (!kcal || kcal < 1 || kcal > 10000) {
-        icon.className = 'bi bi-x-lg'; btn.style.background = '#ef4444';
-        setTimeout(() => { icon.className = 'bi bi-plus-lg'; btn.style.background = 'var(--accent)'; }, 1500);
+        icon.className = 'bi bi-x-lg'; btn.style.background = 'var(--danger)';
+        setTimeout(() => { icon.className = 'bi bi-plus-lg'; btn.style.background = ''; }, 1500);
         return;
     }
     btn.disabled = true;
@@ -530,8 +508,8 @@ async function saveAktiv() {
             }, 400);
         } else throw new Error(d.error);
     } catch(e) {
-        icon.className = 'bi bi-x-lg'; btn.style.background = '#ef4444';
-        setTimeout(() => { icon.className = 'bi bi-plus-lg'; btn.style.background = 'var(--accent)'; }, 1500);
+        icon.className = 'bi bi-x-lg'; btn.style.background = 'var(--danger)';
+        setTimeout(() => { icon.className = 'bi bi-plus-lg'; btn.style.background = ''; }, 1500);
     } finally { btn.disabled = false; }
 }
 document.getElementById('aktivKcal').addEventListener('keyup', e => {
@@ -556,7 +534,7 @@ function toggleAktivHistorie() {
 
 async function loadAktivHistorie() {
     const list = document.getElementById('aktivHistorieList');
-    list.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:.25rem 0;">Lädt…</div>';
+    list.innerHTML = '<div class="tile__sub">Lädt…</div>';
     try {
         // Alle Einträge der letzten 7 Tage in EINEM Request
         const r = await fetch('/api/activity.php?days=7');
@@ -564,7 +542,7 @@ async function loadAktivHistorie() {
         const eintraege = (d.ok ? d.eintraege : []).slice(0, 7);
 
         if (!eintraege.length) {
-            list.innerHTML = '<div style="color:var(--muted);font-size:.8rem;">Keine Einträge</div>';
+            list.innerHTML = '<div class="tile__sub">Keine Einträge</div>';
             return;
         }
         list.innerHTML = '';
@@ -574,27 +552,20 @@ async function loadAktivHistorie() {
               + ' ' + new Date(e.erstellt_am).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
             const item    = document.createElement('div');
             item.dataset.id = e.id;
-            item.style.cssText = 'position:relative;overflow:hidden;border-radius:10px;';
+            item.className = 'mini-swipe';
             item.innerHTML = `
-                <div class="ak-del" style="position:absolute;right:0;top:0;bottom:0;width:70px;
-                    background:var(--danger);display:flex;align-items:center;justify-content:center;
-                    border-radius:0 10px 10px 0;cursor:pointer;">
-                    <i class="bi bi-trash3" style="color:#fff;font-size:1rem;"></i>
-                </div>
-                <div class="ak-row" style="position:relative;background:var(--surface2);
-                    border-radius:10px;padding:.5rem .75rem;display:flex;align-items:center;
-                    justify-content:space-between;gap:.5rem;transition:transform .25s ease;">
-                    <span style="font-size:.75rem;color:var(--muted);flex-shrink:0;">${dateStr}</span>
-                    <span style="font-size:.82rem;color:var(--text);flex:1;
-                                 overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(e.bezeichnung)}</span>
-                    <span style="font-size:.9rem;font-weight:700;color:white;flex-shrink:0;">${e.kcal} kcal</span>
+                <button type="button" class="ak-del mini-swipe__del" aria-label="Löschen"><i class="bi bi-trash3"></i></button>
+                <div class="ak-row mini-swipe__row">
+                    <span class="mini-swipe__date">${dateStr}</span>
+                    <span class="mini-swipe__text">${escHtml(e.bezeichnung)}</span>
+                    <b>${e.kcal} kcal</b>
                 </div>`;
             item.querySelector('.ak-del').addEventListener('click', () => deleteAktiv(e.id, item));
             list.appendChild(item);
             initAktivSwipe(item);
         });
     } catch(err) {
-        list.innerHTML = '<div style="color:var(--danger);font-size:.8rem;">Fehler beim Laden</div>';
+        list.innerHTML = '<div class="tile__sub text-danger">Fehler beim Laden</div>';
     }
 }
 

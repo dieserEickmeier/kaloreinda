@@ -18,284 +18,62 @@ $zeigeMakros = (int)($profilRow['makros_anzeigen'] ?? 1);
 // gerichte.php statt als Tageseintrag gebucht zu werden.
 $pickMode = ($_GET['pick'] ?? '') === '1';
 
+// Tagesrest für „danach X übrig“ im Produkt-Sheet (gleiche Logik wie „Heute“)
+require_once __DIR__ . '/includes/ui.php';
+$stmtPf = $db->prepare("SELECT * FROM profil WHERE user_id = ? LIMIT 1");
+$stmtPf->bind_param('i', $userId);
+$stmtPf->execute();
+$profilFull = $stmtPf->get_result()->fetch_assoc() ?: [];
+$restHeute  = $pickMode ? null
+    : ladeTageswerte($db, $userId, $profilFull, date('Y-m-d'), date('Y-m-d'))[date('Y-m-d')]['uebrig'];
+
 renderHeader('Erfassen', 'log');
 ?>
-
-<div class="page-header">
-    <h1><i class="bi bi-pencil-fill text-accent me-1"></i> Erfassen</h1>
-    <?php if (!$pickMode): ?>
-    <a href="/gerichte.php" title="Gerichte verwalten"
-       style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;
-              padding:.4rem .7rem;color:var(--text);text-decoration:none;font-size:.95rem;">
-        <i class="bi bi-journal-richtext"></i>
-    </a>
-    <?php endif; ?>
-</div>
-
+<?php renderPageHeader($pickMode ? 'Zutat wählen' : 'Erfassen',
+    $pickMode ? '' : '<a href="/gerichte.php" class="icon-btn" aria-label="Gerichte verwalten"><i class="bi bi-journal-richtext"></i></a>'); ?>
 <?php if ($pickMode): ?>
-<div style="margin:0 1rem 1rem;background:rgba(74,222,128,.12);border:1px solid var(--accent);
-            border-radius:12px;padding:.65rem .85rem;display:flex;align-items:center;
-            justify-content:space-between;gap:.5rem;">
-    <div style="font-size:.8rem;color:var(--text);">
-        <i class="bi bi-journal-richtext text-accent me-1"></i>
-        Zutat für Gericht auswählen
-    </div>
-    <button type="button" id="btnPickAbbrechen"
-            style="background:none;border:none;font-size:.78rem;color:var(--muted);
-                   text-decoration:underline;flex-shrink:0;padding:0;">
-        Abbrechen
-    </button>
+<div class="pick-banner">
+    <span><i class="bi bi-journal-richtext text-accent me-1"></i> Zutat für Gericht auswählen</span>
+    <button type="button" id="btnPickAbbrechen" class="btn-link-muted">Abbrechen</button>
 </div>
 <?php endif; ?>
 
-<!-- ── Hinzufügen-Buttons ─────────────────────────────────────── -->
-<div style="margin:.75rem 1rem .5rem;display:flex;gap:.5rem;">
-
-    <!-- Live Kamera (ZXing WASM Beta) -->
-    <button id="btnLiveScan" class="scan-btn secondary vertical"
-            style="flex:1;margin:0;padding:.75rem .5rem;line-height:1.4;position:relative;">
-      <!--  <span style="position:absolute;top:.25rem;right:.25rem;background:var(--accent);
-                     color:#000;font-size:.5rem;font-weight:800;border-radius:4px;
-                     padding:.1rem .25rem;line-height:1.2;">BETA</span>-->
-        <i class="bi bi-camera-video" style="font-size:1.3rem;display:block;"></i>
-        <span style="font-size:.75rem;">Barcode<br>scannen</span>
-    </button>
-
+<!-- ── Erfassen-Aktionen ───────────────────────────────────────── -->
+<div class="log-actions">
     <!-- Barcode Foto (ausgeblendet, Funktion erhalten) -->
     <button id="btnBarcodeFoto" style="display:none;"></button>
-
-    <!-- Barcode eingeben -->
-    <button id="btnBarcodeEingeben" class="scan-btn secondary vertical"
-            style="flex:1;margin:0;padding:.75rem .5rem;line-height:1.4;">
-        <i class="bi bi-keyboard" style="font-size:1.3rem;display:block;"></i>
-        <span style="font-size:.75rem;">Barcode<br>eingeben</span>
-    </button>
-
-    <!-- Nährwerte scannen (PaddleOCR Beta) -->
-    <button id="btnOcrScan" class="scan-btn secondary vertical"
-            style="flex:1;margin:0;padding:.75rem .5rem;line-height:1.4;position:relative;">
-        <span style="position:absolute;top:.25rem;right:.25rem;background:#a78bfa;
-                     color:#000;font-size:.5rem;font-weight:800;border-radius:4px;
-                     padding:.1rem .25rem;line-height:1.2;">BETA</span>
-        <i class="bi bi-body-text" style="font-size:1.3rem;display:block;"></i>
-        <span style="font-size:.75rem;">Nährwerte<br>scannen</span>
-    </button>
-
-    <!-- Hinzufügen Dropdown -->
-    <div style="flex:1;position:relative;">
-        <button id="btnHinzufuegenDropdown" class="scan-btn secondary vertical"
-                style="width:100%;margin:0;padding:.75rem .5rem;line-height:1.4;">
-            <i class="bi bi-plus-lg" style="font-size:1.3rem;display:block;"></i>
-            <span style="font-size:.75rem;">Hinzufügen</span>
-            <i class="bi bi-chevron-down" id="dropdownChevron"
-               style="font-size:.6rem;margin-left:.2rem;transition:transform .2s;"></i>
+    <div class="action-row">
+        <button id="btnBarcodeEingeben" class="action-tile" type="button">
+            <i class="bi bi-keyboard"></i><span>Barcode<br>eingeben</span>
         </button>
-        <div id="addDropdownMenu"
-             style="display:none;position:absolute;top:calc(100% + .3rem);right:0;
-                    background:var(--surface);border:1px solid var(--border);
-                    border-radius:14px;overflow:hidden;z-index:300;
-                    box-shadow:0 4px 20px rgba(0,0,0,.4);min-width:180px;">
-            <button id="ddSchnell"
-                    style="display:flex;align-items:center;gap:.6rem;width:100%;
-                           background:transparent;border:none;
-                           border-bottom:1px solid var(--border);
-                           padding:.65rem .85rem;cursor:pointer;text-align:left;">
-                <i class="bi bi-lightning-fill" style="font-size:1rem;color:var(--warn);flex-shrink:0;"></i>
-                <div>
-                    <div style="font-size:.85rem;font-weight:600;color:var(--text);">Schneller Eintrag</div>
-                    <div style="font-size:.72rem;color:var(--muted);">Nur heute – wird nicht gespeichert</div>
-                </div>
-            </button>
-            <button id="ddManuell"
-                    style="display:flex;align-items:center;gap:.6rem;width:100%;
-                           background:transparent;border:none;
-                           border-bottom:1px solid var(--border);
-                           padding:.65rem .85rem;cursor:pointer;text-align:left;">
-                <i class="bi bi-pencil-square" style="font-size:1rem;color:var(--accent);flex-shrink:0;"></i>
-                <div>
-                    <div style="font-size:.85rem;font-weight:600;color:var(--text);">Manuell erfassen</div>
-                    <div style="font-size:.72rem;color:var(--muted);">Produkt anlegen &amp; wiederverwenden</div>
-                </div>
-            </button>
-        </div>
-    </div>
-</div>
-
-<!-- ── Zentrales Scan-Status-Overlay ──────────────────────────── -->
-<div id="scanOverlay">
-    <div class="so-card">
-        <div class="so-ring"><i id="soIcon" class="bi bi-upc-scan"></i></div>
-        <div class="so-text" id="soText">Suche…</div>
-    </div>
-</div>
-<script>
-function scanOverlayShow(text, opts = {}) {
-    const o = document.getElementById('scanOverlay');
-    o.style.setProperty('--so-color', opts.color || '#4ade80');
-    document.getElementById('soIcon').className = 'bi ' + (opts.icon || 'bi-upc-scan');
-    document.getElementById('soText').textContent = text;
-    o.style.display = 'flex';
-}
-function scanOverlayUpdate(text) {
-    document.getElementById('soText').textContent = text;
-}
-function scanOverlayHide() {
-    document.getElementById('scanOverlay').style.display = 'none';
-}
-</script>
-
-<!-- ── ZXing WASM Live-Scanner ────────────────────────────────────────── -->
-<div id="zxingWrap" style="display:none;position:fixed;inset:0;z-index:9999;
-     background:#000;flex-direction:column;">
-
-    <!-- Video – volles Bild, kein Cover-Crop, keine Abdunklung -->
-    <div style="position:relative;flex:1;overflow:hidden;background:#000;
-                display:flex;align-items:center;justify-content:center;">
-        <video id="zxingVideo" autoplay playsinline muted
-               style="width:100%;height:100%;object-fit:contain;display:block;"></video>
-
-        <!-- Scan-Rahmen: nur Ecken, kein Overlay, kein Dimming -->
-        <div style="position:absolute;inset:0;pointer-events:none;
-                    display:flex;align-items:center;justify-content:center;">
-            <div id="zxingFrame" style="
-                position:relative;width:78%;aspect-ratio:3/1.2;
-                transition:border-color .2s;">
-                <!-- Ecken oben links -->
-                <div style="position:absolute;top:0;left:0;width:22px;height:22px;
-                            border-top:3px solid #4ade80;border-left:3px solid #4ade80;
-                            border-radius:4px 0 0 0;"></div>
-                <!-- Ecken oben rechts -->
-                <div style="position:absolute;top:0;right:0;width:22px;height:22px;
-                            border-top:3px solid #4ade80;border-right:3px solid #4ade80;
-                            border-radius:0 4px 0 0;"></div>
-                <!-- Ecken unten links -->
-                <div style="position:absolute;bottom:0;left:0;width:22px;height:22px;
-                            border-bottom:3px solid #4ade80;border-left:3px solid #4ade80;
-                            border-radius:0 0 0 4px;"></div>
-                <!-- Ecken unten rechts -->
-                <div style="position:absolute;bottom:0;right:0;width:22px;height:22px;
-                            border-bottom:3px solid #4ade80;border-right:3px solid #4ade80;
-                            border-radius:0 0 4px 0;"></div>
-                <!-- Scan-Linie -->
-                <div id="zxingScanLine" style="
-                    position:absolute;left:4px;right:4px;height:2px;
-                    background:linear-gradient(90deg,transparent,#4ade80,transparent);
-                    top:0;animation:zxingScan 1.8s ease-in-out infinite;"></div>
-            </div>
-        </div>
-
-        <!-- Erfolgs-Flash (startet bei opacity:0) -->
-        <div id="zxingFlash" style="
-            position:absolute;inset:0;background:#4ade80;
-            opacity:0;pointer-events:none;transition:opacity .15s;"></div>
-    </div>
-
-    <!-- Status + Controls -->
-    <div style="background:#0f1117;padding:1.25rem 1.5rem calc(1.25rem + env(safe-area-inset-bottom, 0px));
-                display:flex;flex-direction:column;align-items:center;gap:1rem;">
-        <!-- Statustext -->
-        <div style="display:flex;align-items:center;gap:.6rem;">
-            <div id="zxingDot" style="width:8px;height:8px;border-radius:50%;
-                 background:#4ade80;flex-shrink:0;
-                 animation:zxingPulse 1.4s ease-in-out infinite;"></div>
-            <span id="zxingStatus" style="font-size:.95rem;color:#e8eaf0;
-                  font-weight:500;letter-spacing:.01em;">Barcode positionieren…</span>
-        </div>
-        <!-- Hinweistext -->
-        <p style="margin:0;font-size:.78rem;color:#7c7f8e;text-align:center;line-height:1.4;">
-            Barcode innerhalb des Rahmens halten.<br>Die Erkennung startet automatisch.
-        </p>
-        <!-- Stop-Button -->
-        <button onclick="zxingStop()"
-                style="width:100%;max-width:320px;
-                       background:rgba(255,255,255,.08);
-                       border:1px solid rgba(255,255,255,.12);
-                       border-radius:14px;color:#e8eaf0;
-                       font-size:1rem;font-weight:600;
-                       padding:.85rem 1rem;cursor:pointer;
-                       -webkit-tap-highlight-color:transparent;
-                       transition:background .15s;">
-            ✕ &nbsp;Scanner schließen
+        <button id="btnOcrScan" class="action-tile" type="button">
+            <span class="badge-beta">BETA</span>
+            <i class="bi bi-body-text"></i><span>Nährwerte<br>scannen</span>
+        </button>
+        <button id="ddSchnell" class="action-tile" type="button">
+            <i class="bi bi-lightning-fill" style="color:var(--quick);"></i><span>Schneller<br>Eintrag</span>
+        </button>
+        <button id="ddManuell" class="action-tile" type="button">
+            <i class="bi bi-pencil-square"></i><span>Manuell<br>erfassen</span>
         </button>
     </div>
 </div>
-
-<style>
-/* ── Zentrales Scan-Status-Overlay ─────────────────────────────── */
-#scanOverlay {
-    position: fixed; inset: 0; z-index: 10001;
-    display: none; align-items: center; justify-content: center;
-    pointer-events: none;
-}
-#scanOverlay .so-card {
-    display: flex; flex-direction: column; align-items: center; gap: 1rem;
-    background: rgba(15, 17, 23, .72);
-    backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(255, 255, 255, .09);
-    border-radius: 24px;
-    padding: 1.75rem 2.25rem;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, .5);
-    animation: soPop .25s cubic-bezier(.34, 1.56, .64, 1);
-}
-#scanOverlay .so-ring {
-    position: relative; width: 58px; height: 58px;
-    display: flex; align-items: center; justify-content: center;
-}
-#scanOverlay .so-ring::before {
-    content: ''; position: absolute; inset: 0;
-    border-radius: 50%;
-    border: 3px solid transparent;
-    border-top-color: var(--so-color, #4ade80);
-    border-right-color: var(--so-color, #4ade80);
-    animation: soSpin .8s linear infinite;
-}
-#scanOverlay .so-ring::after {
-    content: ''; position: absolute; inset: -7px;
-    border-radius: 50%;
-    border: 1px solid var(--so-color, #4ade80);
-    opacity: .35;
-    animation: soPulse 1.6s ease-out infinite;
-}
-#scanOverlay .so-ring i {
-    font-size: 1.5rem; color: var(--so-color, #4ade80);
-}
-#scanOverlay .so-text {
-    font-size: .92rem; font-weight: 600; color: #e8eaf0;
-    letter-spacing: .01em; text-align: center; max-width: 240px;
-}
-@keyframes soSpin  { to { transform: rotate(360deg); } }
-@keyframes soPulse { 0% { transform: scale(.92); opacity: .5; } 100% { transform: scale(1.25); opacity: 0; } }
-@keyframes soPop   { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-
-@keyframes zxingScan {
-    0%   { top: 4px;  opacity: 1; }
-    48%  { opacity: 1; }
-    50%  { top: calc(100% - 6px); opacity: .4; }
-    52%  { opacity: 1; }
-    100% { top: 4px;  opacity: 1; }
-}
-@keyframes zxingPulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50%       { opacity: .4; transform: scale(.7); }
-}
-</style>
 
 <!-- Versteckte Elemente für Barcode-Foto-Verarbeitung -->
 <input type="file" id="barcodeFileInput" accept="image/*" capture="environment" class="d-none">
 <canvas id="barcodeCanvas" style="display:none;"></canvas>
 
 <!-- Lade-Status -->
-<div id="barcodeStatus" style="display:none;text-align:center;padding:.75rem 1rem;
-     color:var(--muted);font-size:.85rem;">
+<div id="barcodeStatus" class="log-status" style="display:none;">
     <div class="spinner-border spinner-border-sm spinner-accent me-1"></div>
     <span id="barcodeStatusText">Barcode wird erkannt…</span>
 </div>
 
 <!-- Fehler: nicht gefunden -->
-<div id="notFound" class="d-none kt-card" style="margin:.5rem 1rem 1rem;text-align:center;color:var(--muted);">
-    <i class="bi bi-upc-scan" style="font-size:2rem;display:block;margin-bottom:.5rem;"></i>
-    <div style="font-weight:700;color:var(--text);margin-bottom:.4rem;">Produkt nicht gefunden</div>
-    <div style="font-size:.82rem;line-height:1.5;">
+<div id="notFound" class="d-none kt-card text-center" style="margin:.5rem .85rem 1rem;">
+    <i class="bi bi-upc-scan" style="font-size:2rem;display:block;margin-bottom:.5rem;color:var(--muted);"></i>
+    <div style="font-weight:700;margin-bottom:.4rem;">Produkt nicht gefunden</div>
+    <div class="text-muted" style="font-size:.85rem;line-height:1.5;">
         Der Barcode konnte nicht erkannt oder das Produkt nicht in OpenFoodFacts gefunden werden.<br>
         Versuche es nochmal mit besserem Licht oder gib das Produkt manuell ein.
     </div>
@@ -311,18 +89,12 @@ function scanOverlayHide() {
 </div>
 
 <!-- ── Suche ─────────────────────────────────────────────────── -->
-<div style="padding:.75rem 1rem 0;">
-    <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem;">
-        <div style="position:relative;flex:1;">
-            <i class="bi bi-search" style="position:absolute;left:.85rem;top:50%;transform:translateY(-50%);
-               color:var(--muted);pointer-events:none;"></i>
-            <input type="search" id="searchInput" placeholder="Lebensmittel &amp; Gerichte suchen…"
-                   autocomplete="off" autocorrect="off" spellcheck="false"
-                   style="width:100%;background:var(--surface);border:1px solid var(--border);
-                          border-radius:12px;padding:.6rem .75rem .6rem 2.4rem;
-                          color:var(--text);font-size:1rem;outline:none;">
-        </div>
-<span class="kt-info-inline" style="flex-shrink:0;"><button class="kt-info-btn" type="button" aria-label="Info"><i class="bi bi-info-circle"></i></button><div class="kt-tooltip" style="right:0;left:auto;width:300px;top:calc(100% + -.5rem);"> Durchsucht alle Lebensmittel die du bereits gescannt oder manuell angelegt hast – sowie deine gespeicherten Gerichte.<br><br>
+<div class="log-search">
+    <div class="search-field">
+        <i class="bi bi-search"></i>
+        <input type="search" id="searchInput" placeholder="Lebensmittel &amp; Gerichte suchen…"
+               autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Suchen">
+        <span class="kt-info-inline" style="flex-shrink:0;"><button class="kt-info-btn" type="button" aria-label="Info"><i class="bi bi-info-circle"></i></button><div class="kt-tooltip" style="right:0;left:auto;top:calc(100% + .3rem);"> Durchsucht alle Lebensmittel die du bereits gescannt oder manuell angelegt hast – sowie deine gespeicherten Gerichte.<br><br>
 <strong>Häufige Lebensmittel</strong> – deine 8 meistgenutzten Produkte aus direkten Einträgen. Produkte die nur als Teil eines Gerichts verwendet wurden erscheinen hier nicht.<br><br>
 <strong>Häufige Gerichte</strong> – deine zuletzt angelegten Gerichte. Antippen zum Eintragen.<br><br>
 <strong>Was gespeichert wird:</strong><br>
@@ -332,33 +104,22 @@ function scanOverlayHide() {
 · Gerichte – immer privat<br><br>
 <strong>„Nur anlegen“</strong> – Produkt speichern ohne Buchung für heute, z.B. beim Vorkochen für die Woche. Am jeweiligen Tag dann einfach über die Suche eintragen.
 </div></span>
-				</div>
-    <div id="searchResults" class="d-none" style="background:var(--surface);
-         border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:1rem;"></div>
+    </div>
+    <div id="searchResults" class="list-tile d-none" style="margin:.6rem 0 0;"></div>
 </div>
 
 <!-- ── Top 8 ─────────────────────────────────────────────────── -->
-<div style="padding:0 1rem;">
-    <div style="font-size:.78rem;color:var(--muted);margin-bottom:.5rem;">Häufige Lebensmittel</div>
-    <div id="top5Chips" style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:1rem;">
-        <span style="font-size:.78rem;color:var(--muted);grid-column:span 1;">Wird geladen…</span>
-    </div>
-
+<div class="section-label"><span>Häufige Lebensmittel</span></div>
+<div id="top5Chips" class="pick-grid">
+    <span class="pick-empty">Wird geladen…</span>
 </div>
 
 <?php if (!$pickMode): ?>
 <!-- ── Häufige Gerichte ───────────────────────────────────────── -->
-<div style="padding:0 1rem;" id="gerichteSectionWrapper">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem;">
-        <span style="font-size:.78rem;color:var(--muted);">Häufige Gerichte</span>
-        <a href="/gerichte.php" style="font-size:.75rem;color:var(--accent);text-decoration:none;font-weight:600;">
-            Alle <i class="bi bi-chevron-right" style="font-size:.65rem;"></i>
-        </a>
-    </div>
-
-    <!-- Top 4 Gerichte -->
-    <div id="topGerichteChips" style="display:grid;grid-template-columns:1fr;gap:.5rem;margin-bottom:1rem;">
-        <span style="font-size:.78rem;color:var(--muted);grid-column:span 1;">Wird geladen…</span>
+<div id="gerichteSectionWrapper">
+    <div class="section-label"><span>Häufige Gerichte</span><a href="/gerichte.php" class="section-link">Alle <i class="bi bi-chevron-right"></i></a></div>
+    <div id="topGerichteChips" class="pick-grid pick-grid--1">
+        <span class="pick-empty">Wird geladen…</span>
     </div>
 </div>
 <?php endif; ?>
@@ -367,10 +128,9 @@ function scanOverlayHide() {
 <div id="gerichtEintragenModal" class="product-found">
   <div class="pf-card">
     <div class="pf-head">
-        <div class="pf-head__icon"><i class="bi bi-journal-richtext"></i></div>
         <div class="pf-head__text">
-            <div id="gerichtEintragenName">–</div>
-            <div id="gerichtEintragenInfo">–</div>
+            <div id="gerichtEintragenInfo" class="pf-src">–</div>
+            <div id="gerichtEintragenName" class="pf-name">–</div>
         </div>
         <button class="pf-close" id="btnGerichtVerwerfen" aria-label="Schließen">
             <i class="bi bi-x-lg"></i>
@@ -380,6 +140,7 @@ function scanOverlayHide() {
     <div class="pf-kcal">
         <div class="pf-kcal__num" id="geKcalPreview">0</div>
         <div class="pf-kcal__unit">kcal</div>
+        <?php if ($restHeute !== null): ?><div class="pf-kcal__after" id="geAfter">danach<br><b>–</b></div><?php endif; ?>
     </div>
 
     <div class="pf-macros">
@@ -388,11 +149,11 @@ function scanOverlayHide() {
             <span class="pf-macro__lab">kcal/Port.</span>
         </div>
         <div class="pf-macro">
-            <div class="pf-macro__ring" style="--c:#60a5fa;"><span id="geKcalGesamt">–</span></div>
+            <div class="pf-macro__ring" style="--c:var(--prot);"><span id="geKcalGesamt">–</span></div>
             <span class="pf-macro__lab">kcal ges.</span>
         </div>
         <div class="pf-macro">
-            <div class="pf-macro__ring" style="--c:#a78bfa;"><span id="gePortionen">–</span></div>
+            <div class="pf-macro__ring" style="--c:var(--carb);"><span id="gePortionen">–</span></div>
             <span class="pf-macro__lab">Portionen</span>
         </div>
     </div>
@@ -413,13 +174,14 @@ function scanOverlayHide() {
             <i class="bi bi-dash-lg"></i>
         </button>
         <div class="pf-menge__field">
-            <input type="number" inputmode="decimal" id="gerichtEintragenPortionen" value="1" min="0.5" step="0.5">
+            <input type="number" inputmode="decimal" id="gerichtEintragenPortionen" value="1" min="0.5" step="0.5" aria-label="Menge">
             <span id="gerichtEintragenEinheit">Portion(en)</span>
         </div>
         <button type="button" class="pf-stepper" id="btnGePlus" aria-label="Mehr">
             <i class="bi bi-plus-lg"></i>
         </button>
     </div>
+    <div class="ruler" data-ruler-for="gerichtEintragenPortionen"></div>
     <div class="pf-chips" id="geQuickChipsPortion">
         <button type="button" class="pf-chip" data-val="0.5">½</button>
         <button type="button" class="pf-chip active" data-val="1">1</button>
@@ -436,8 +198,9 @@ function scanOverlayHide() {
     </div>
 
     <div class="pf-actions">
-        <button class="scan-btn" id="btnGerichtEintragen">
-            <i class="bi bi-plus-circle-fill"></i> Eintragen
+        <button class="scan-btn btn-split" id="btnGerichtEintragen">
+            <span>Hinzufügen</span>
+            <span><span id="geBtnKcal" class="num">0</span> kcal <i class="bi bi-arrow-right"></i></span>
         </button>
     </div>
   </div>
@@ -450,17 +213,11 @@ function scanOverlayHide() {
 
 
 <!-- ── Modal: manuelle Erfassung ─────────────────────────────── -->
-<div id="manualModal" style="display:none;position:fixed;inset:0;z-index:500;
-     background:rgba(0,0,0,.7);padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0);">
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;position:absolute;
-                bottom:0;left:0;right:0;padding:1.5rem 1rem 2rem;max-height:90vh;overflow-y:auto;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
-            <h2 style="font-size:1.1rem;font-weight:700;margin:0;">Lebensmittel manuell erfassen</h2>
-            <button onclick="closeManualModal()"
-                    style="background:var(--surface2);border:none;border-radius:50%;
-                           width:2rem;height:2rem;color:var(--muted);font-size:1rem;
-                           display:flex;align-items:center;justify-content:center;">
-                <i class="bi bi-x"></i>
+<div id="manualModal" class="kt-overlay" style="display:none;">
+    <div class="sheet sheet--abs">
+        <div class="sheet-head">
+            <h2>Lebensmittel manuell erfassen</h2>
+            <button type="button" class="pf-close" onclick="closeManualModal()" aria-label="Schließen"><i class="bi bi-x-lg"></i>
             </button>
         </div>
         <div class="kt-form">
@@ -477,27 +234,27 @@ function scanOverlayHide() {
                 <input type="number" id="fKcal" class="form-control" placeholder="z.B. 250" min="0" step="0.1" inputmode="decimal">
             </div>
             <div class="mb-4">
-                <label class="form-label">Portionsgröße (g) <span style="color:var(--muted);font-size:.8rem;">optional</span></label>
+                <label class="form-label">Portionsgröße (g) <span class="text-muted">optional</span></label>
                 <input type="number" id="fPortion" class="form-control" placeholder="z.B. 30" min="1" step="0.5" inputmode="decimal">
             </div>
             <?php if ($zeigeMakros): ?>
             <div class="mb-4">
-                <label class="form-label" style="font-size:.82rem;color:var(--muted);">Makros / 100g <span style="font-size:.75rem;">(optional)</span></label>
+                <label class="form-label">Makros / 100 g <span class="text-muted">(optional)</span></label>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;">
                     <div>
-                        <label style="font-size:.7rem;color:#60a5fa;font-weight:600;display:block;margin-bottom:.25rem;">Eiweiß g</label>
+                        <label class="kt-label fg-c c-prot">Eiweiß g</label>
                         <input type="number" id="fEiweiss" class="form-control" placeholder="0" min="0" step="0.1" inputmode="decimal"
-                               style="padding:.5rem .6rem;font-size:.9rem;">
+                              >
                     </div>
                     <div>
-                        <label style="font-size:.7rem;color:#fb923c;font-weight:600;display:block;margin-bottom:.25rem;">Fett g</label>
+                        <label class="kt-label fg-c c-fat">Fett g</label>
                         <input type="number" id="fFett" class="form-control" placeholder="0" min="0" step="0.1" inputmode="decimal"
-                               style="padding:.5rem .6rem;font-size:.9rem;">
+                              >
                     </div>
                     <div>
-                        <label style="font-size:.7rem;color:#a78bfa;font-weight:600;display:block;margin-bottom:.25rem;">KH g</label>
+                        <label class="kt-label fg-c c-carb">KH g</label>
                         <input type="number" id="fKh" class="form-control" placeholder="0" min="0" step="0.1" inputmode="decimal"
-                               style="padding:.5rem .6rem;font-size:.9rem;">
+                              >
                     </div>
                 </div>
             </div>
@@ -506,8 +263,7 @@ function scanOverlayHide() {
             <input type="hidden" id="fFett"    value="0">
             <input type="hidden" id="fKh"      value="0">
             <?php endif; ?>
-            <div id="kcalPreviewManual" style="text-align:center;font-size:1.6rem;font-weight:800;
-                 color:var(--accent);margin-bottom:1.25rem;display:none;">– kcal</div>
+            <div id="kcalPreviewManual" class="sheet-preview" style="display:none;">– kcal</div>
             <?php if (!$pickMode): ?>
             <div class="ziel-toggle-wrap">
                 <button type="button" class="portion-toggle active" id="manualZielHeute">
@@ -544,18 +300,18 @@ function scanOverlayHide() {
                     display:flex;align-items:center;justify-content:center;">
             <div id="ocrFrame" style="
                 width:85%;aspect-ratio:3/4;
-                border:2px solid #a78bfa;border-radius:12px;
+                border:2px solid var(--carb);border-radius:12px;
                 box-shadow:0 0 0 9999px rgba(0,0,0,.5);
                 transition:border-color .2s,box-shadow .2s;">
                 <!-- Ecken -->
                 <div style="position:absolute;top:0;left:0;width:22px;height:22px;
-                            border-top:3px solid #a78bfa;border-left:3px solid #a78bfa;border-radius:4px 0 0 0;"></div>
+                            border-top:3px solid var(--carb);border-left:3px solid var(--carb);border-radius:4px 0 0 0;"></div>
                 <div style="position:absolute;top:0;right:0;width:22px;height:22px;
-                            border-top:3px solid #a78bfa;border-right:3px solid #a78bfa;border-radius:0 4px 0 0;"></div>
+                            border-top:3px solid var(--carb);border-right:3px solid var(--carb);border-radius:0 4px 0 0;"></div>
                 <div style="position:absolute;bottom:0;left:0;width:22px;height:22px;
-                            border-bottom:3px solid #a78bfa;border-left:3px solid #a78bfa;border-radius:0 0 0 4px;"></div>
+                            border-bottom:3px solid var(--carb);border-left:3px solid var(--carb);border-radius:0 0 0 4px;"></div>
                 <div style="position:absolute;bottom:0;right:0;width:22px;height:22px;
-                            border-bottom:3px solid #a78bfa;border-right:3px solid #a78bfa;border-radius:0 0 4px 0;"></div>
+                            border-bottom:3px solid var(--carb);border-right:3px solid var(--carb);border-radius:0 0 4px 0;"></div>
                 <!-- Hinweistext im Rahmen -->
                 <div style="position:absolute;bottom:.5rem;left:0;right:0;text-align:center;
                             font-size:.7rem;color:rgba(167,139,250,.8);">
@@ -569,25 +325,25 @@ function scanOverlayHide() {
     </div>
 
     <!-- Controls -->
-    <div style="background:#0f1117;padding:1rem 1.5rem calc(1rem + env(safe-area-inset-bottom,0px));
+    <div style="background:var(--bg);padding:1rem 1.5rem calc(1rem + env(safe-area-inset-bottom,0px));
                 display:flex;flex-direction:column;align-items:center;gap:.75rem;">
         <div style="display:flex;align-items:center;gap:.5rem;">
             <div id="ocrDot" style="width:8px;height:8px;border-radius:50%;
-                 background:#a78bfa;flex-shrink:0;"></div>
-            <span id="ocrStatus" style="font-size:.9rem;color:#e8eaf0;font-weight:500;">
+                 background:var(--carb);flex-shrink:0;"></div>
+            <span id="ocrStatus" style="font-size:.9rem;color:var(--text);font-weight:500;">
                 Bereit – Foto aufnehmen
             </span>
         </div>
         <div style="display:flex;gap:.75rem;width:100%;max-width:320px;">
             <button id="btnOcrCapture" onclick="ocrCapture()"
-                    style="flex:1;background:#a78bfa;border:none;border-radius:14px;
-                           color:#000;font-size:1rem;font-weight:700;padding:.85rem;
+                    style="flex:1;background:var(--carb);border:none;border-radius:14px;
+                           color:#160b33;font-size:1rem;font-weight:700;padding:.85rem;
                            cursor:pointer;-webkit-tap-highlight-color:transparent;">
                 <i class="bi bi-camera-fill"></i> Foto aufnehmen
             </button>
             <button onclick="ocrStop()"
                     style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);
-                           border-radius:14px;color:#e8eaf0;font-size:.9rem;font-weight:600;
+                           border-radius:14px;color:var(--text);font-size:.9rem;font-weight:600;
                            padding:.85rem 1rem;cursor:pointer;-webkit-tap-highlight-color:transparent;">
                 ✕
             </button>
@@ -596,22 +352,16 @@ function scanOverlayHide() {
 </div>
 
 <!-- ── Modal: OCR Ergebnis bearbeiten ─────────────────────────────── -->
-<div id="ocrResultModal" style="display:none;position:fixed;inset:0;z-index:600;
-     background:rgba(0,0,0,.7);padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0);">
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;position:absolute;
-                bottom:0;left:0;right:0;padding:1.5rem 1rem 2rem;max-height:90vh;overflow-y:auto;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+<div id="ocrResultModal" class="kt-overlay" style="display:none;z-index:600;">
+    <div class="sheet sheet--abs">
+        <div class="sheet-head">
             <div>
-                <h2 style="font-size:1.05rem;font-weight:700;margin:0;">Erkannte Nährwerte</h2>
-                <p style="font-size:.75rem;color:var(--muted);margin:.2rem 0 0;">
+                <h2>Erkannte Nährwerte</h2>
+                <p class="sheet-sub">
                     Bitte prüfen und ggf. korrigieren
                 </p>
             </div>
-            <button onclick="closeOcrResult()"
-                    style="background:var(--surface2);border:none;border-radius:50%;
-                           width:2rem;height:2rem;color:var(--muted);font-size:1rem;
-                           display:flex;align-items:center;justify-content:center;">
-                <i class="bi bi-x"></i>
+            <button type="button" class="pf-close" onclick="closeOcrResult()" aria-label="Schließen"><i class="bi bi-x-lg"></i>
             </button>
         </div>
 
@@ -628,19 +378,19 @@ function scanOverlayHide() {
         <?php if ($zeigeMakros): ?>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;" class="mb-4">
             <div>
-                <label style="font-size:.7rem;color:#60a5fa;font-weight:600;display:block;margin-bottom:.25rem;">Eiweiß g/100g</label>
+                <label class="kt-label fg-c c-prot">Eiweiß g/100g</label>
                 <input type="number" id="ocrEiweiss" class="form-control" placeholder="0"
-                       min="0" step="0.1" inputmode="decimal" style="padding:.5rem .6rem;font-size:.9rem;">
+                       min="0" step="0.1" inputmode="decimal">
             </div>
             <div>
-                <label style="font-size:.7rem;color:#fb923c;font-weight:600;display:block;margin-bottom:.25rem;">Fett g/100g</label>
+                <label class="kt-label fg-c c-fat">Fett g/100g</label>
                 <input type="number" id="ocrFett" class="form-control" placeholder="0"
-                       min="0" step="0.1" inputmode="decimal" style="padding:.5rem .6rem;font-size:.9rem;">
+                       min="0" step="0.1" inputmode="decimal">
             </div>
             <div>
-                <label style="font-size:.7rem;color:#a78bfa;font-weight:600;display:block;margin-bottom:.25rem;">KH g/100g</label>
+                <label class="kt-label fg-c c-carb">KH g/100g</label>
                 <input type="number" id="ocrKh" class="form-control" placeholder="0"
-                       min="0" step="0.1" inputmode="decimal" style="padding:.5rem .6rem;font-size:.9rem;">
+                       min="0" step="0.1" inputmode="decimal">
             </div>
         </div>
         <?php else: ?>
@@ -657,8 +407,7 @@ function scanOverlayHide() {
         </div>
 
         <!-- Vorschau -->
-        <div id="ocrPreview" style="text-align:center;font-size:1.4rem;font-weight:800;
-             color:var(--accent);margin-bottom:1.25rem;display:none;"></div>
+        <div id="ocrPreview" class="sheet-preview" style="display:none;"></div>
 
         <?php if (!$pickMode): ?>
         <div class="ziel-toggle-wrap">
@@ -681,27 +430,21 @@ function scanOverlayHide() {
 </div>
 
 <!-- ── Modal: Schneller Eintrag ──────────────────────────────── -->
-<div id="schnellModal" style="display:none;position:fixed;inset:0;z-index:500;
-     background:rgba(0,0,0,.7);padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0);">
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;position:absolute;
-                bottom:0;left:0;right:0;padding:1.5rem 1rem 2rem;max-height:90vh;overflow-y:auto;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
+<div id="schnellModal" class="kt-overlay" style="display:none;">
+    <div class="sheet sheet--abs">
+        <div class="sheet-head">
             <div>
-                <h2 style="font-size:1.1rem;font-weight:700;margin:0;">Schneller Eintrag</h2>
-                <p style="font-size:.75rem;color:var(--muted);margin:.2rem 0 0;">
+                <h2>Schneller Eintrag</h2>
+                <p class="sheet-sub">
                     Wird nur heute eingetragen, nicht als Produkt gespeichert.
                 </p>
             </div>
-            <button onclick="closeSchnellModal()"
-                    style="background:var(--surface2);border:none;border-radius:50%;
-                           width:2rem;height:2rem;color:var(--muted);font-size:1rem;
-                           display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                <i class="bi bi-x"></i>
+            <button type="button" class="pf-close" onclick="closeSchnellModal()" aria-label="Schließen"><i class="bi bi-x-lg"></i>
             </button>
         </div>
         <div class="kt-form">
             <div class="mb-3">
-                <label class="form-label">Name <span style="color:var(--muted);font-size:.8rem;">(optional)</span></label>
+                <label class="form-label">Name <span class="text-muted">(optional)</span></label>
                 <input type="text" id="sfName" class="form-control"
                        placeholder="z.B. Apfel" autocomplete="off">
             </div>
@@ -713,19 +456,19 @@ function scanOverlayHide() {
             <?php if ($zeigeMakros): ?>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;" class="mb-4">
                 <div>
-                    <label style="font-size:.7rem;color:#60a5fa;font-weight:600;display:block;margin-bottom:.25rem;">Eiweiß g</label>
+                    <label class="kt-label fg-c c-prot">Eiweiß g</label>
                     <input type="number" id="sfEiweiss" class="form-control" placeholder="0"
-                           min="0" step="0.1" inputmode="decimal" style="padding:.5rem .6rem;font-size:.9rem;">
+                           min="0" step="0.1" inputmode="decimal">
                 </div>
                 <div>
-                    <label style="font-size:.7rem;color:#fb923c;font-weight:600;display:block;margin-bottom:.25rem;">Fett g</label>
+                    <label class="kt-label fg-c c-fat">Fett g</label>
                     <input type="number" id="sfFett" class="form-control" placeholder="0"
-                           min="0" step="0.1" inputmode="decimal" style="padding:.5rem .6rem;font-size:.9rem;">
+                           min="0" step="0.1" inputmode="decimal">
                 </div>
                 <div>
-                    <label style="font-size:.7rem;color:#a78bfa;font-weight:600;display:block;margin-bottom:.25rem;">KH g</label>
+                    <label class="kt-label fg-c c-carb">KH g</label>
                     <input type="number" id="sfKh" class="form-control" placeholder="0"
-                           min="0" step="0.1" inputmode="decimal" style="padding:.5rem .6rem;font-size:.9rem;">
+                           min="0" step="0.1" inputmode="decimal">
                 </div>
             </div>
             <?php else: ?>
@@ -733,8 +476,7 @@ function scanOverlayHide() {
             <input type="hidden" id="sfFett"    value="0">
             <input type="hidden" id="sfKh"      value="0">
             <?php endif; ?>
-            <div id="schnellKcalPreview" style="text-align:center;font-size:1.6rem;font-weight:800;
-                 color:var(--accent);margin-bottom:1.25rem;display:none;">– kcal</div>
+            <div id="schnellKcalPreview" class="sheet-preview" style="display:none;">– kcal</div>
             <button class="scan-btn mb-2" id="btnSchnellSpeichern">
                 <i class="bi bi-lightning-fill"></i> Schnell eintragen
             </button>
@@ -750,10 +492,9 @@ function scanOverlayHide() {
   <div class="pf-card">
     <!-- Kopf: Icon, Name, Quelle, Schließen -->
     <div class="pf-head">
-        <div class="pf-head__icon"><i class="bi bi-check-lg"></i></div>
         <div class="pf-head__text">
-            <div id="pfName">–</div>
             <div id="pfSrc">–</div>
+            <div id="pfName">–</div>
         </div>
         <button class="pf-close" id="btnVerwerfen" aria-label="Schließen">
             <i class="bi bi-x-lg"></i>
@@ -764,20 +505,21 @@ function scanOverlayHide() {
     <div class="pf-kcal">
         <div class="pf-kcal__num" id="kcalPreview">0</div>
         <div class="pf-kcal__unit">kcal</div>
+        <?php if ($restHeute !== null): ?><div class="pf-kcal__after" id="pfAfter">danach<br><b>–</b></div><?php endif; ?>
     </div>
 
     <!-- Makro-Ringe pro 100g -->
     <div class="pf-macros">
         <div class="pf-macro">
-            <div class="pf-macro__ring" style="--c:#60a5fa;"><span id="pfEiweiss">–</span></div>
+            <div class="pf-macro__ring" style="--c:var(--prot);"><span id="pfEiweiss">–</span></div>
             <span class="pf-macro__lab">Eiweiß</span>
         </div>
         <div class="pf-macro">
-            <div class="pf-macro__ring" style="--c:#fb923c;"><span id="pfFett">–</span></div>
+            <div class="pf-macro__ring" style="--c:var(--fat);"><span id="pfFett">–</span></div>
             <span class="pf-macro__lab">Fett</span>
         </div>
         <div class="pf-macro">
-            <div class="pf-macro__ring" style="--c:#a78bfa;"><span id="pfKh">–</span></div>
+            <div class="pf-macro__ring" style="--c:var(--carb);"><span id="pfKh">–</span></div>
             <span class="pf-macro__lab">KH</span>
         </div>
     </div>
@@ -792,19 +534,20 @@ function scanOverlayHide() {
                placeholder="Portionsgröße in g" class="pf-portion-input">
     </div>
 
-    <!-- Menge: Stepper + Schnellwahl-Chips -->
+    <!-- Menge: Zahl + Stepper, Lineal, Schnellwahl-Chips -->
     <div class="pf-menge">
         <button type="button" class="pf-stepper" id="btnMengeMinus" aria-label="Weniger">
             <i class="bi bi-dash-lg"></i>
         </button>
         <div class="pf-menge__field">
-            <input type="number" inputmode="decimal" id="mengeInput" value="100" min="1" max="5000">
+            <input type="number" inputmode="decimal" id="mengeInput" value="100" min="1" max="5000" aria-label="Menge">
             <span id="mengeUnitLabel">g</span>
         </div>
         <button type="button" class="pf-stepper" id="btnMengePlus" aria-label="Mehr">
             <i class="bi bi-plus-lg"></i>
         </button>
     </div>
+    <div class="ruler" data-ruler-for="mengeInput"></div>
     <div class="pf-chips" id="pfQuickChips">
         <button type="button" class="pf-chip" data-val="50">50</button>
         <button type="button" class="pf-chip" data-val="100">100</button>
@@ -822,11 +565,11 @@ function scanOverlayHide() {
 
     <!-- Aktionen -->
     <div class="pf-actions">
-        <button class="scan-btn" id="btnEintragen">
-            <i class="bi bi-plus-circle-fill"></i>
-            <?= $pickMode ? 'Als Zutat übernehmen' : 'Eintragen' ?>
+        <button class="scan-btn btn-split" id="btnEintragen">
+            <span><?= $pickMode ? 'Als Zutat übernehmen' : 'Hinzufügen' ?></span>
+            <span><span id="pfBtnKcal" class="num">0</span> kcal <i class="bi bi-arrow-right"></i></span>
         </button>
-        <button class="scan-btn secondary" id="btnDeleteProdukt" style="display:none;color:#f87171;border-color:#f87171;">
+        <button class="scan-btn danger" id="btnDeleteProdukt" style="display:none;">
             <i class="bi bi-trash3"></i> Manuellen Eintrag löschen
         </button>
     </div>
@@ -835,24 +578,16 @@ function scanOverlayHide() {
 
 <!-- ── Modal: Barcode manuell eingeben ───────────────────────── -->
 <div id="barcodeManuellModal"
-     style="display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.7);
-            padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0);">
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;position:absolute;
-                bottom:0;left:0;right:0;padding:1.5rem 1rem 2rem;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
-            <h2 style="font-size:1.1rem;font-weight:700;margin:0;">Barcode eingeben</h2>
-            <button onclick="closeBarcodeManuellModal()"
-                    style="background:var(--surface2);border:none;border-radius:50%;
-                           width:2rem;height:2rem;color:var(--muted);font-size:1rem;
-                           display:flex;align-items:center;justify-content:center;">
-                <i class="bi bi-x"></i>
+     class="kt-overlay" style="display:none;">
+    <div class="sheet sheet--abs">
+        <div class="sheet-head">
+            <h2>Barcode eingeben</h2>
+            <button type="button" class="pf-close" onclick="closeBarcodeManuellModal()" aria-label="Schließen"><i class="bi bi-x-lg"></i>
             </button>
         </div>
         <input type="text" id="manualBarcodeInput" inputmode="numeric" pattern="[0-9]*"
                placeholder="z.B. 4005500201809"
-               style="width:100%;background:var(--surface);border:1px solid var(--border);
-                      border-radius:12px;padding:.75rem 1rem;color:var(--text);
-                      font-size:1.1rem;margin-bottom:1rem;letter-spacing:.1em;">
+               class="form-control mb-3" style="letter-spacing:.1em;font-size:1.1rem;">
         <button class="scan-btn" id="btnLookupManual">
             <i class="bi bi-search"></i> Produkt suchen
         </button>
@@ -878,11 +613,10 @@ function scanOverlayHide() {
     font-size:.72rem;font-weight:600;cursor:pointer;transition:all .15s;
 }
 .mode-btn i { font-size:1.3rem; }
-.mode-btn.active { background:rgba(74,222,128,.12);border-color:var(--accent);color:var(--accent); }
+.mode-btn.active { background:var(--accent-soft);border-color:var(--accent);color:var(--accent); }
 .mode-btn:active { opacity:.75; }
 </style>
 
-<script src="/assets/js/zxing-wasm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.4.2/dist/quagga.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
@@ -967,7 +701,7 @@ function showProduct(p) {
     currentProduct = p;
     const quellMap = {openfoodfacts:'OpenFoodFacts',manuell:'Manuell erfasst'};
     document.getElementById('pfName').textContent    = p.name;
-    document.getElementById('pfSrc').textContent     = 'Quelle: ' + (quellMap[p.quelle] || p.quelle || 'Eigene Datenbank');
+    document.getElementById('pfSrc').textContent     = quellMap[p.quelle] || p.quelle || 'Eigene Datenbank';
     document.getElementById('pfKcal').textContent    = Math.round(p.kcal_100g);
     document.getElementById('pfEiweiss').textContent = Math.round(p.eiweiss_100g) + 'g';
     document.getElementById('pfFett').textContent    = Math.round(p.fett_100g) + 'g';
@@ -996,7 +730,21 @@ function getPfMengeG() {
 function updateKcalPreview() {
     if (!currentProduct) return;
     const menge = getPfMengeG();
-    document.getElementById('kcalPreview').textContent = Math.round(currentProduct.kcal_100g * menge / 100);
+    const kcal  = Math.round(currentProduct.kcal_100g * menge / 100);
+    document.getElementById('kcalPreview').textContent = kcal;
+    document.getElementById('pfBtnKcal').textContent   = kcal;
+    updateDanach('pfAfter', kcal);
+}
+
+// „danach X übrig“ im Sheet – Tagesrest kommt aus PHP (wie auf „Heute“)
+const REST_HEUTE = <?= $restHeute === null ? 'null' : (int)round($restHeute) ?>;
+function updateDanach(elId, kcal) {
+    const el = document.getElementById(elId);
+    if (!el || REST_HEUTE === null) return;
+    const r = REST_HEUTE - kcal;
+    const b = el.querySelector('b');
+    b.textContent = Math.abs(r).toLocaleString('de-DE') + (r >= 0 ? ' übrig' : ' drüber');
+    b.classList.toggle('over', r < 0);
 }
 
 // ── Scan-Modus ───────────────────────────────────────────────────────────
@@ -1135,7 +883,7 @@ function liveFlash() {
     const wrap = document.getElementById('liveScannerWrap');
     if (!wrap) return;
     const flash = document.createElement('div');
-    Object.assign(flash.style, {position:'absolute',inset:'0',background:'rgba(74,222,128,.35)',
+    Object.assign(flash.style, {position:'absolute',inset:'0',background:'rgba(212,245,60,.35)',
         zIndex:'50',pointerEvents:'none',transition:'opacity .25s ease-out'});
     wrap.appendChild(flash);
     requestAnimationFrame(() => { flash.style.opacity = '0'; });
@@ -1250,17 +998,13 @@ async function loadTop5() {
         const d = await r.json();
         const container = document.getElementById('top5Chips');
         if (!d.ok || !d.results.length) {
-            container.innerHTML = '<span style="font-size:.78rem;color:var(--muted);grid-column:span 1;">Noch keine Einträge vorhanden.</span>';
+            container.innerHTML = '<span class="pick-empty">Noch keine Einträge vorhanden.</span>';
             return;
         }
         container.innerHTML = d.results.map(p => `
-            <button onclick="selectProduct(${escHtml(JSON.stringify(p))})"
-                    style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
-                           padding:.6rem .75rem;text-align:left;width:100%;min-width:0;overflow:hidden;">
-                <div style="font-size:.82rem;color:var(--text);font-weight:600;
-                             display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-                             overflow:hidden;">${escHtml(p.name)}</div>
-                <div style="font-size:.72rem;color:var(--muted);margin-top:.1rem;">${Math.round(p.kcal_100g)} kcal/100g</div>
+            <button type="button" class="pick-tile" onclick="selectProduct(${escHtml(JSON.stringify(p))})">
+                <b>${escHtml(p.name)}</b>
+                <small>${Math.round(p.kcal_100g)} kcal/100 g</small>
             </button>`).join('');
     } catch(e) {}
 }
@@ -1295,46 +1039,31 @@ async function doSearch(q) {
             : [];
 
         if (!produkte.length && !gerichte.length) {
-            box.innerHTML = '<div style="padding:.75rem 1rem;font-size:.85rem;color:var(--muted);">Keine Treffer</div>';
+            box.innerHTML = '<div class="list-row"><span class="list-row__sub">Keine Treffer</span></div>';
             box.classList.remove('d-none'); return;
         }
 
         let html = '';
 
         if (gerichte.length) {
-            html += `<div style="padding:.4rem 1rem .2rem;font-size:.72rem;font-weight:700;
-                                 color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">
-                         Gerichte</div>`;
-            html += gerichte.map((g, i) => {
+            html += `<div class="list-group-label">Gerichte</div>`;
+            html += gerichte.map(g => {
                 const kcal = g.kcal_gesamt ? Math.round(g.kcal_gesamt / Math.max(1, g.portionen)) : 0;
-                return `<button onclick="openGerichtEintragen(${gerichtArgs(g)});document.getElementById('searchInput').value='';document.getElementById('searchResults').classList.add('d-none');"
-                                style="display:flex;justify-content:space-between;align-items:center;width:100%;
-                                       padding:.65rem 1rem;background:none;border:none;
-                                       border-bottom:1px solid var(--border);text-align:left;">
-                            <div style="display:flex;align-items:center;gap:.5rem;overflow:hidden;">
-                                <i class="bi bi-journal-richtext" style="color:var(--accent);flex-shrink:0;font-size:.85rem;"></i>
-                                <span style="font-size:.88rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(g.name)}</span>
-                            </div>
-                            <div style="font-size:.78rem;color:var(--muted);flex-shrink:0;">${kcal} kcal/P</div>
+                return `<button type="button" class="list-row" onclick="openGerichtEintragen(${gerichtArgs(g)});document.getElementById('searchInput').value='';document.getElementById('searchResults').classList.add('d-none');">
+                            <span class="tl-dot src-dish"></span>
+                            <span class="list-row__text"><span class="list-row__title text-truncate">${escHtml(g.name)}</span></span>
+                            <span class="list-row__end">${kcal} kcal/P</span>
                         </button>`;
             }).join('');
         }
 
         if (produkte.length) {
-            if (gerichte.length) {
-                html += `<div style="padding:.4rem 1rem .2rem;font-size:.72rem;font-weight:700;
-                                     color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">
-                             Lebensmittel</div>`;
-            }
-            html += produkte.map((p, i) => `
-                <button onclick="selectProduct(${escHtml(JSON.stringify(p))})"
-                        style="display:flex;justify-content:space-between;align-items:center;width:100%;
-                               padding:.65rem 1rem;background:none;border:none;
-                               border-bottom:${i < produkte.length-1 ? '1px solid var(--border)' : 'none'};
-                               text-align:left;">
-                    <div style="font-size:.88rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;
-                                 white-space:nowrap;max-width:75%;">${escHtml(p.name)}</div>
-                    <div style="font-size:.78rem;color:var(--muted);flex-shrink:0;">${Math.round(p.kcal_100g)} kcal/100g</div>
+            if (gerichte.length) html += `<div class="list-group-label">Lebensmittel</div>`;
+            html += produkte.map(p => `
+                <button type="button" class="list-row" onclick="selectProduct(${escHtml(JSON.stringify(p))})">
+                    <span class="tl-dot ${p.quelle === 'manuell' ? 'src-man' : 'src-scan'}"></span>
+                    <span class="list-row__text"><span class="list-row__title text-truncate">${escHtml(p.name)}</span></span>
+                    <span class="list-row__end">${Math.round(p.kcal_100g)} kcal/100 g</span>
                 </button>`).join('');
         }
 
@@ -1421,34 +1150,11 @@ document.getElementById('manualModal').addEventListener('click', function(e) {
     if (e.target === this) closeManualModal();
 });
 // ── Action Sheet ─────────────────────────────────────────────────────────────
-// ── Dropdown: Hinzufügen ─────────────────────────────────────────────────
-const _ddMenu    = document.getElementById('addDropdownMenu');
-const _ddChevron = document.getElementById('dropdownChevron');
-
-function _toggleDropdown(e) {
-    e.stopPropagation();
-    const open = _ddMenu.style.display === 'block';
-    _ddMenu.style.display = open ? 'none' : 'block';
-    _ddChevron.style.transform = open ? '' : 'rotate(180deg)';
-}
-document.getElementById('btnHinzufuegenDropdown').addEventListener('click', _toggleDropdown);
-document.addEventListener('click', () => {
-    _ddMenu.style.display = 'none';
-    _ddChevron.style.transform = '';
-});
 document.getElementById('btnOcrScan').addEventListener('click', ocrStart);
 
 // ── Dropdown-Einträge ─────────────────────────────────────────────────────
-document.getElementById('ddSchnell').addEventListener('click', e => {
-    e.stopPropagation();
-    _ddMenu.style.display = 'none';
-    openSchnellModal();
-});
-document.getElementById('ddManuell').addEventListener('click', e => {
-    e.stopPropagation();
-    _ddMenu.style.display = 'none';
-    openManualModal();
-});
+document.getElementById('ddSchnell').addEventListener('click', openSchnellModal);
+document.getElementById('ddManuell').addEventListener('click', openManualModal);
 
 // ── OCR Nährwerte Scanner (PaddleOCR via ONNX Runtime, Beta) ─────────────
 let _ocrStream  = null;
@@ -1607,14 +1313,14 @@ async function ocrCapture() {
     _ocrBusy = true;
     btn.disabled = true;
     ocrSta.textContent = 'Analysiere Bild…';
-    frame.style.borderColor = '#facc15';
+    frame.style.borderColor = 'var(--quick)';
     scanOverlayShow('Analysiere Nährwerttabelle…', {
-        icon: 'bi-body-text', color: '#a78bfa',
+        icon: 'bi-body-text', color: 'var(--carb)',
     });
 
     try {
         const parsed = await ocrAnalyzeFrame();
-        frame.style.borderColor = '#4ade80';
+        frame.style.borderColor = 'var(--accent)';
         scanOverlayHide();
         ocrSta.textContent = '✓ Erkannt – bitte prüfen';
         ocrStop();
@@ -1622,10 +1328,10 @@ async function ocrCapture() {
     } catch(e) {
         scanOverlayHide();
         console.error('[OCR] detect', e);
-        frame.style.borderColor = '#f87171';
+        frame.style.borderColor = 'var(--danger)';
         ocrSta.textContent = '✗ ' + (e.message || e).toString().slice(0, 80);
         setTimeout(() => {
-            frame.style.borderColor = '#a78bfa';
+            frame.style.borderColor = 'var(--carb)';
             ocrSta.textContent = 'Bereit – Foto aufnehmen';
         }, 4000);
     } finally {
@@ -1812,197 +1518,27 @@ function ocrStop() {
 }
 window.addEventListener('pagehide', ocrStop);
 
-// ── ZXing WASM Beta Live-Scanner ──────────────────────────────────────────
-let _zxingActive = false, _zxingStream = null, _zxingFrame = null;
 
-async function zxingStart() {
-    if (_zxingActive) { zxingStop(); return; }
 
-    const wrap = document.getElementById('zxingWrap');
-    const vid  = document.getElementById('zxingVideo');
-    const sta  = document.getElementById('zxingStatus');
+// Scanner (global, scanner.js): Treffer direkt hier im Produkt-Sheet zeigen
+// statt wie auf anderen Seiten nach /log.php?barcode=… weiterzuleiten.
+window.onScanProduct = (product) => showProduct(product);
 
-    // Scan-Effekte zurücksetzen – direkt am Anfang damit
-    // der Browser einen vollständigen Reflow macht bevor die Kamera startet
-    const line  = document.getElementById('zxingScanLine');
-    const frame = document.getElementById('zxingFrame');
-    const flash = document.getElementById('zxingFlash');
-    const dot   = document.getElementById('zxingDot');
-    if (line)  { line.style.animation  = 'none'; }
-    if (frame) { frame.style.borderColor = ''; frame.style.boxShadow = ''; }
-    if (flash) { flash.style.opacity = '0'; }
-    if (dot)   { dot.style.background = '#4ade80'; dot.style.animation = 'none'; }
-
-    wrap.style.display = 'flex';
-    // Reflow hier: wrap ist jetzt sichtbar, Browser rendert die UI neu
-    // Das garantiert dass die Animation-Zurücksetzung wirksam ist
-    await new Promise(r => requestAnimationFrame(r));
-    await new Promise(r => requestAnimationFrame(r));
-
-    // Animationen jetzt neu starten
-    if (line) line.style.animation = 'zxingScan 1.8s ease-in-out infinite';
-    if (dot)  dot.style.animation  = 'zxingPulse 1.4s ease-in-out infinite';
-
-    sta.textContent = 'Kamera wird gestartet…';
-
-    // WASM bei jedem Start frisch initialisieren – stellt sicher dass
-    // das Modul nach einem vorherigen Stop noch korrekt arbeitet
+// Übergabe aus dem Scanner einer anderen Seite (/log.php?barcode=…) bzw.
+// Einstieg mit Fokus auf die Suche (/log.php?focus=search)
+(async () => {
+    const qs = new URLSearchParams(location.search);
+    if (qs.get('focus') === 'search') document.getElementById('searchInput')?.focus();
+    const code = qs.get('barcode');
+    if (!code) return;
+    history.replaceState(null, '', location.pathname + (qs.get('pick') ? '?pick=1' : ''));
     try {
-        await ZXingWASM.readBarcodesFromImageData(new ImageData(1, 1), {formats: []});
-    } catch(e) {
-        sta.textContent = 'WASM Fehler: ' + e.message;
-        return;
-    }
-
-    try {
-        _zxingStream = await navigator.mediaDevices.getUserMedia({
-            video: {facingMode: 'environment'}
-        });
-        vid.srcObject = _zxingStream;
-        await vid.play();
-        _zxingActive = true;
-
-        const btn = document.getElementById('btnLiveScan');
-        if (btn) { btn.style.background = 'var(--accent)'; btn.style.color = '#000'; }
-        sta.textContent = 'Barcode positionieren…';
-
-        const canvas = document.createElement('canvas');
-        const ctx    = canvas.getContext('2d', {willReadFrequently: true});
-
-        async function loop() {
-            if (!_zxingActive) return;
-            if (vid.readyState >= 2) {
-                canvas.width  = vid.videoWidth;
-                canvas.height = vid.videoHeight;
-                ctx.drawImage(vid, 0, 0);
-                try {
-                    const results = await ZXingWASM.readBarcodesFromImageData(
-                        ctx.getImageData(0, 0, canvas.width, canvas.height),
-                        {formats: [], tryHarder: true, tryRotate: true, tryInvert: true}
-                    );
-                    if (results && results.length > 0) {
-                        const code = results[0].text;
-                        if (code && code.length > 2) {
-                            // ── Erfolgs-Animation ──────────────────────
-                            // 1. Rahmen grün aufleuchten
-                            const frame = document.getElementById('zxingFrame');
-                            if (frame) {
-                                frame.style.borderColor = '#4ade80';
-                                frame.style.boxShadow   = '0 0 0 9999px rgba(0,0,0,.45), 0 0 24px #4ade80';
-                            }
-                            // 2. Weißer Flash über das gesamte Bild
-                            const flash = document.getElementById('zxingFlash');
-                            if (flash) {
-                                flash.style.opacity = '0.6';
-                                setTimeout(() => { flash.style.opacity = '0'; }, 150);
-                            }
-                            // 3. Scan-Linie stoppen
-                            const line = document.getElementById('zxingScanLine');
-                            if (line) line.style.animation = 'none';
-
-                            sta.textContent = '✓ ' + code;
-                            const dot = document.getElementById('zxingDot');
-                            if (dot) { dot.style.background = '#fff'; dot.style.animation = 'none'; }
-                            // kurz warten damit Erfolgs-Animation sichtbar ist
-                            await new Promise(r => setTimeout(r, 300));
-                            try {
-                                const sta = document.getElementById('zxingStatus');
-                                const dot = document.getElementById('zxingDot');
-
-                                // ── Zentrales Such-Overlay ─────────────────
-                                scanOverlayShow('Suche „' + code + '" in Datenbank…', {
-                                    icon: 'bi-upc-scan', color: '#4ade80',
-                                });
-                                if (sta) sta.textContent = 'Suche…';
-
-                                document.getElementById('notFound').classList.add('d-none');
-                                let d;
-                                try {
-                                    const r = await fetch('/api/barcode.php?code=' + encodeURIComponent(code));
-                                    d = await r.json();
-                                } finally {
-                                    scanOverlayHide();
-                                }
-
-                                if (d.ok) {
-                                    // ── Gefunden: Scanner schließen, Produkt zeigen ──
-                                    zxingStop();
-                                    showProduct(d.product);
-                                } else {
-                                    await _zxingRetry(sta, dot, '✗ Barcode nicht in DB');
-                                    // Loop neu starten
-                                    if (_zxingActive) _zxingFrame = requestAnimationFrame(loop);
-                                    return;
-                                }
-                            } catch(apiE) {
-                                const sta = document.getElementById('zxingStatus');
-                                const dot = document.getElementById('zxingDot');
-                                await _zxingRetry(sta, dot, '✗ Verbindungsfehler');
-                                // Loop neu starten
-                                if (_zxingActive) _zxingFrame = requestAnimationFrame(loop);
-                                return;
-                            }
-                            return;
-                        }
-                    }
-                } catch(e) { /* Frame-Fehler ignorieren */ }
-            }
-            setTimeout(() => { if (_zxingActive) _zxingFrame = requestAnimationFrame(loop); }, 300);
-        }
-        _zxingFrame = requestAnimationFrame(loop);
-
-    } catch(err) {
-        sta.textContent = 'Kamera-Fehler: ' + err.message;
-    }
-}
-
-// Countdown + Reset nach fehlgeschlagenem Scan
-async function _zxingRetry(sta, dot, msg) {
-    _zxingLockUntil = Date.now() + 3500;
-    if (dot) { dot.style.background = '#f87171'; dot.style.animation = 'none'; }
-
-    // 3-Sekunden-Countdown
-    for (let i = 3; i >= 1; i--) {
-        if (!_zxingActive) return;
-        if (sta) sta.innerHTML =
-            '<span style="color:#f87171;">' + msg + ' – neuer Scan in ' + i + 's</span>';
-        await new Promise(r => setTimeout(r, 1000));
-    }
-    if (!_zxingActive) return;
-
-    // Reset: Farben, Status, Scan-Linie
-    if (dot) { dot.style.background = '#4ade80'; dot.style.animation = 'zxingPulse 1.4s ease-in-out infinite'; }
-    if (sta) sta.textContent = 'Barcode positionieren…';
-    const line = document.getElementById('zxingScanLine');
-    if (line) { line.style.animation = 'none'; void line.offsetHeight; line.style.animation = 'zxingScan 1.8s ease-in-out infinite'; }
-
-    // Lock aufheben + Loop neu anstoßen
-    _zxingLastResult = null;
-    _zxingLockUntil  = 0;
-}
-
-function zxingStop() {
-    if (typeof scanOverlayHide === 'function') scanOverlayHide();
-    _zxingActive = false;
-    if (_zxingFrame) { cancelAnimationFrame(_zxingFrame); _zxingFrame = null; }
-    if (_zxingStream) { _zxingStream.getTracks().forEach(t => t.stop()); _zxingStream = null; }
-    const wrap = document.getElementById('zxingWrap');
-    if (wrap) wrap.style.display = 'none';
-    const btn = document.getElementById('btnLiveScan');
-    if (btn) { btn.style.background = ''; btn.style.color = ''; }
-    // Scan-Effekte für nächsten Aufruf zurücksetzen
-    const line  = document.getElementById('zxingScanLine');
-    const frame = document.getElementById('zxingFrame');
-    const flash = document.getElementById('zxingFlash');
-    // Animation-Reset passiert in zxingStart() damit Browser-Reflow garantiert ist
-    if (frame) { frame.style.borderColor = ''; frame.style.boxShadow = ''; }
-    if (flash) { flash.style.opacity = '0'; }
-}
-
-window.addEventListener('pagehide', zxingStop);
-window.addEventListener('beforeunload', zxingStop);
-
-document.getElementById('btnLiveScan').addEventListener('click', zxingStart);
+        const r = await fetch('/api/barcode.php?code=' + encodeURIComponent(code));
+        const d = await r.json();
+        if (d.ok) showProduct(d.product);
+        else { document.getElementById('notFound').classList.remove('d-none'); showToast('Barcode ' + code + ' nicht gefunden'); }
+    } catch (e) { showToast('Verbindungsfehler'); }
+})();
 
 document.getElementById('btnBarcodeFoto').addEventListener('click', () => {
     document.getElementById('notFound').classList.add('d-none');
@@ -2246,19 +1782,17 @@ async function loadTopGerichte() {
     const r = await fetch('/api/gericht.php?sort=nutzung');
     const d = await r.json();
     if (!d.ok || !d.gerichte.length) {
-        container.innerHTML = '<span style="font-size:.78rem;color:var(--muted);grid-column:span 1;">Noch keine Gerichte angelegt.</span>';
+        container.innerHTML = '<span class="pick-empty">Noch keine Gerichte angelegt.</span>';
         document.getElementById('gerichteSectionWrapper').style.display = 'none';
         return;
     }
     const top4 = d.gerichte.slice(0, 4);
     container.innerHTML = top4.map(g => {
         const kcal = g.kcal_gesamt ? Math.round(g.kcal_gesamt / Math.max(1, g.portionen)) : '?';
-        return `<button onclick="openGerichtEintragen(${gerichtArgs(g)})"
-                        style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
-                               padding:.65rem .75rem;text-align:left;cursor:pointer;width:100%;">
-                    <div style="font-size:.82rem;font-weight:700;color:var(--text);
-                                overflow:hidden;text-overflow:ellipsis;word-break:break-word;">${escHtml(g.name)}</div>
-                    <div style="font-size:.72rem;color:var(--muted);">${kcal} kcal / Portion</div>
+        return `<button type="button" class="pick-tile pick-tile--row" onclick="openGerichtEintragen(${gerichtArgs(g)})">
+                    <span class="tl-dot src-dish"></span>
+                    <b>${escHtml(g.name)}</b>
+                    <small>${kcal} kcal / Portion</small>
                 </button>`;
     }).join('');
 }
@@ -2320,6 +1854,8 @@ function updateGerichtPreview() {
         kcal = kcalPro * val;
     }
     document.getElementById('geKcalPreview').textContent = Math.round(kcal);
+    document.getElementById('geBtnKcal').textContent     = Math.round(kcal);
+    updateDanach('geAfter', Math.round(kcal));
 }
 function closeGerichtEintragenModal() {
     document.getElementById('gerichtEintragenModal').classList.remove('visible');

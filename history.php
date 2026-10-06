@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/layout.php';
 require_once __DIR__ . '/includes/bmr.php';
+require_once __DIR__ . '/includes/ui.php';
 $currentUser = requireLogin();
 $userId = $currentUser['id'];
 
@@ -12,294 +13,114 @@ $db = db();
 // Profil + Makro-Setting laden
 $stmtPr = $db->prepare("SELECT * FROM profil WHERE user_id = ? LIMIT 1");
 $stmtPr->bind_param('i', $userId); $stmtPr->execute();
-$profil = $stmtPr->get_result()->fetch_assoc();
+$profil = $stmtPr->get_result()->fetch_assoc() ?: [];
 $zeigeMakros = (int)($profil['makros_anzeigen'] ?? 1);
 
-// Gewicht pro Tag: für jeden Tag das zuletzt vor/an diesem Datum eingetragene Gewicht
-$stmtGew = $db->prepare("
-    SELECT e.datum,
-           (SELECT kg FROM gewicht
-            WHERE user_id = ? AND datum <= e.datum
-            ORDER BY datum DESC, id DESC LIMIT 1) AS kg
-    FROM (
-        SELECT DISTINCT datum FROM eintraege
-        WHERE user_id = ?
-          AND datum >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-          AND datum < CURDATE()
-    ) e
-");
-$stmtGew->bind_param('ii', $userId, $userId);
-$stmtGew->execute();
-$gewichtProTag = [];
-foreach ($stmtGew->get_result()->fetch_all(MYSQLI_ASSOC) as $g) {
-    $gewichtProTag[$g['datum']] = $g['kg'] ? (float)$g['kg'] : null;
+// ── Tageswerte für bis zu 365 Tage (ohne heute) – Grundlage für Charts,
+//    Kennzahlen und die Tageskarten der letzten 7 Tage ─────────────────────
+$gestern = date('Y-m-d', strtotime('-1 day'));
+$tageAll = ladeTageswerte($db, $userId, $profil, date('Y-m-d', strtotime('-365 day')), $gestern);
+
+// Serie: aufeinanderfolgende Tage im Ziel bis gestern (leere Tage beenden sie)
+$serie = 0;
+foreach (array_reverse($tageAll) as $t) {
+    if ($t['leer'] || $t['uebrig'] < 0) break;
+    $serie++;
 }
 
-// Fallback: aktuelles Gewicht für Tage ohne Eintrag in gewicht-Tabelle
-$stmtGewFallback = $db->prepare("SELECT kg FROM gewicht WHERE user_id = ? ORDER BY datum DESC, id DESC LIMIT 1");
-$stmtGewFallback->bind_param('i', $userId);
-$stmtGewFallback->execute();
-$gewFallback = (float)($stmtGewFallback->get_result()->fetch_assoc()['kg'] ?? 0) ?: null;
+// Gewichtsmessungen (echte Messpunkte, nicht fortgeschrieben) für den Trend-Chart
+$stmtG = $db->prepare("SELECT datum, kg FROM gewicht WHERE user_id = ? AND datum >= DATE_SUB(CURDATE(), INTERVAL 365 DAY) ORDER BY datum, id");
+$stmtG->bind_param('i', $userId); $stmtG->execute();
+$gewichte = array_map(fn($r) => ['d' => $r['datum'], 'kg' => (float)$r['kg']],
+                      $stmtG->get_result()->fetch_all(MYSQLI_ASSOC));
 
-$defizit = (int)($profil['defizit_kcal'] ?? 500);
+// Letzte 7 Tage (neueste zuerst) für die Tageskarten
+$tage7 = array_reverse(array_slice($tageAll, -7, 7, true), true);
 
-// Letzte 7 Tage (ohne heute)
-$stmt = $db->prepare("
-    SELECT datum,
-           ROUND(SUM(kcal),1)    AS kcal,
-           ROUND(SUM(eiweiss),1) AS eiweiss,
-           ROUND(SUM(fett),1)    AS fett,
-           ROUND(SUM(kh),1)      AS kh,
-           COUNT(*)              AS anzahl
-    FROM eintraege
-    WHERE datum >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-      AND datum < CURDATE()
-      AND user_id = ?
-    GROUP BY datum
-    ORDER BY datum DESC
-");
-$stmt->bind_param('i', $userId);
-$stmt->execute();
-$tage = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-
-// Lückenlose 7 Tage: GROUP BY liefert nur Tage MIT Einträgen –
-// Tage ohne Erfassung würden sonst fehlen (z.B. 6 statt 7 Tage sichtbar).
-$tageMap = array_column($tage, null, 'datum');
-$tage = [];
-for ($i = 1; $i <= 7; $i++) {
-    $d = date('Y-m-d', strtotime("-{$i} day"));
-    $tage[] = $tageMap[$d] ?? [
-        'datum' => $d, 'kcal' => 0, 'eiweiss' => 0,
-        'fett' => 0, 'kh' => 0, 'anzahl' => 0,
-    ];
-}
-
-// Aktivitätskalorien pro Tag
-$aktivMap = [];
-if (!empty($tage)) {
-    $minDatum = end($tage)['datum'];
-    $stmtA = $db->prepare("
-        SELECT datum, ROUND(SUM(kcal),1) AS aktiv_kcal
-        FROM aktivitaet_log
-        WHERE datum >= ? AND datum < CURDATE() AND user_id = ?
-        GROUP BY datum
-    ");
-    $stmtA->bind_param('si', $minDatum, $userId);
-    $stmtA->execute();
-    foreach ($stmtA->get_result()->fetch_all(MYSQLI_ASSOC) as $a) {
-        $aktivMap[$a['datum']] = (float)$a['aktiv_kcal'];
-    }
-}
-
-// Einträge für jeden Tag (mit Produkt-Join für Icons)
+// Einträge der letzten 7 Tage (mit Produkt-Join für Quell-Punkte)
 $eintraege = [];
-if (!empty($tage)) {
-    $minDatum = end($tage)['datum'];
-    $stmt2 = $db->prepare("
-        SELECT e.*, p.quelle
-        FROM eintraege e
-        LEFT JOIN produkte p ON p.id = e.produkt_id
-        WHERE e.datum >= ? AND e.datum < CURDATE() AND e.user_id = ?
-        ORDER BY e.datum DESC, e.erstellt_am DESC
-    ");
-    $stmt2->bind_param('si', $minDatum, $userId);
-    $stmt2->execute();
-    foreach ($stmt2->get_result()->fetch_all(MYSQLI_ASSOC) as $e) {
-        $eintraege[$e['datum']][] = $e;
-    }
+$minDatum  = array_key_last($tage7);
+$stmt2 = $db->prepare("
+    SELECT e.*, p.quelle
+    FROM eintraege e
+    LEFT JOIN produkte p ON p.id = e.produkt_id
+    WHERE e.datum >= ? AND e.datum < CURDATE() AND e.user_id = ?
+    ORDER BY e.datum DESC, e.erstellt_am DESC
+");
+$stmt2->bind_param('si', $minDatum, $userId);
+$stmt2->execute();
+foreach ($stmt2->get_result()->fetch_all(MYSQLI_ASSOC) as $e) {
+    $eintraege[$e['datum']][] = $e;
 }
 
-// ── Vorberechnung aller Tageswerte (für Chart + Cards) ──────────────────
-$tageCalc = [];
-foreach ($tage as $tag) {
-    $datum     = $tag['datum'];
-    $aktivKcal = $aktivMap[$datum] ?? 0;
-    $kgTag     = $gewichtProTag[$datum] ?? $gewFallback;
-    $tdeeTag   = berechneTdee($profil, $kgTag);
-    $basisZiel = $tdeeTag ? max(1200, $tdeeTag - $defizit) : TAGESZIEL_KCAL;
-    $ziel      = $basisZiel + $aktivKcal;
-    $gegessen  = (float)$tag['kcal'];
-    $tageCalc[] = [
-        'tag'      => $tag,
-        'datum'    => $datum,
-        'basisZiel'=> $basisZiel,
-        'aktivKcal'=> $aktivKcal,
-        'ziel'     => $ziel,
-        'gegessen' => $gegessen,
-        'uebrig'   => $ziel - $gegessen,
-        'leer'     => (int)$tag['anzahl'] === 0,
-    ];
-}
+// Kompakte Chart-Daten fürs Frontend
+$chartTage = array_values(array_map(fn($t) => [
+    'd' => $t['datum'], 'k' => $t['leer'] ? null : round($t['kcal']), 'z' => round($t['ziel']),
+], $tageAll));
 
-// Wochen-Kennzahlen (nur Tage mit Einträgen)
-$aktiveT   = array_filter($tageCalc, fn($t) => !$t['leer']);
-$avgKcal   = count($aktiveT) ? array_sum(array_column($aktiveT, 'gegessen')) / count($aktiveT) : 0;
-$imZiel    = count(array_filter($aktiveT, fn($t) => $t['uebrig'] >= 0));
-$avgBilanz = count($aktiveT) ? array_sum(array_column($aktiveT, 'uebrig')) / count($aktiveT) : 0;
-$chartMax  = max(1, max(array_merge(
-    array_column($tageCalc, 'gegessen'),
-    array_column($tageCalc, 'ziel')
-)));
+$hatDaten = (bool)array_filter($tageAll, fn($t) => !$t['leer']);
 
 renderHeader('Verlauf', 'history');
-
-function entryIcon(?int $gerichtId, ?string $quelle, ?int $produktId): string {
-    if ($gerichtId) {
-        $icon  = 'bi-journal-richtext';
-        $color = 'var(--accent)';
-        $title = 'Gericht';
-    } elseif ($produktId === null && $quelle === null) {
-        $icon  = 'bi-lightning-fill';
-        $color = 'var(--warn)';
-        $title = 'Schneller Eintrag';
-    } elseif ($quelle === 'manuell' || $quelle === null) {
-        $icon  = 'bi-pencil';
-        $color = 'var(--muted)';
-        $title = 'Manuell erfasst';
-    } else {
-        $icon  = 'bi-upc-scan';
-        $color = '#60a5fa';
-        $title = 'Barcode / OpenFoodFacts';
-    }
-    return "<span title=\"{$title}\" style=\"display:inline-flex;align-items:center;justify-content:center;
-        width:2rem;height:2rem;border-radius:50%;background:var(--surface2);flex-shrink:0;\">
-        <i class=\"bi {$icon}\" style=\"color:{$color};font-size:.8rem;\"></i>
-        </span>";
-}
 ?>
 
-<style>
-/* ── Verlauf Redesign ─────────────────────────────────────────── */
-.hx-week {
-    background: linear-gradient(160deg, var(--surface) 0%, rgba(74,222,128,.045) 100%);
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 1rem 1.1rem .9rem;
-    margin-bottom: 1rem;
-}
-.hx-week__stats { display: flex; gap: .4rem; margin-bottom: 1rem; }
-.hx-stat {
-    flex: 1; text-align: center;
-    background: rgba(0,0,0,.18);
-    border-radius: 12px; padding: .5rem .25rem;
-}
-.hx-stat b { display: block; font-size: 1.02rem; font-weight: 800; line-height: 1.2; }
-.hx-stat span { font-size: .62rem; color: var(--muted); letter-spacing: .02em; }
+<?php renderPageHeader('Verlauf', '', 'Dein Fortschritt'); ?>
 
-.hx-chart {
-    display: flex; align-items: flex-end; gap: .45rem;
-    height: 86px; padding-top: .25rem;
-}
-.hx-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .3rem; height: 100%; }
-.hx-col__track { position: relative; width: 100%; flex: 1; display: flex; align-items: flex-end; }
-.hx-col__bar {
-    width: 100%; border-radius: 6px 6px 3px 3px;
-    min-height: 3px;
-    transition: height .5s cubic-bezier(.22,1,.36,1);
-}
-.hx-col__goal {
-    position: absolute; left: -2px; right: -2px; height: 2px;
-    background: rgba(255,255,255,.38); border-radius: 2px;
-}
-.hx-col__lbl { font-size: .6rem; color: var(--muted); font-weight: 600; }
-
-.hx-day {
-    position: relative;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    margin: 0 1rem .7rem;
-    overflow: hidden;
-}
-.hx-day::before {
-    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-    background: var(--hx-accent, var(--border));
-}
-.hx-day--leer { opacity: .55; }
-.hx-day__head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: .8rem 1rem .55rem 1.1rem;
-}
-.hx-day__date b { font-size: .95rem; font-weight: 800; }
-.hx-day__date span { font-size: .7rem; color: var(--muted); margin-left: .4rem; }
-.hx-day__kcal { text-align: right; }
-.hx-day__kcal b { font-size: 1.05rem; font-weight: 800; }
-.hx-day__kcal small { font-size: .62rem; color: var(--muted); display: block; margin-top: -2px; }
-.hx-delta {
-    display: inline-block; font-size: .66rem; font-weight: 800;
-    border-radius: 99px; padding: .12rem .5rem; margin-left: .45rem;
-    vertical-align: 2px;
-}
-.hx-chips {
-    display: flex; gap: .35rem; flex-wrap: wrap;
-    padding: 0 1rem .6rem 1.1rem;
-}
-.hx-chip {
-    font-size: .68rem; color: var(--muted);
-    background: var(--surface2);
-    border-radius: 99px; padding: .2rem .6rem;
-}
-.hx-chip b { color: var(--text); font-weight: 700; }
-.hx-macro { padding: 0 1rem .75rem 1.1rem; }
-.hx-macro__bar {
-    display: flex; height: 7px; border-radius: 99px; overflow: hidden;
-    background: var(--surface2);
-}
-.hx-macro__bar i { height: 100%; }
-.hx-macro__legend {
-    display: flex; gap: .8rem; margin-top: .35rem;
-    font-size: .64rem; color: var(--muted);
-}
-.hx-macro__legend b { color: var(--text); font-weight: 700; }
-.hx-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: .25rem; }
-.hx-empty {
-    padding: .3rem 1rem .8rem 1.1rem;
-    font-size: .78rem; color: var(--muted);
-}
-details.hx-entries summary {
-    padding: .55rem 1rem .7rem 1.1rem;
-    font-size: .78rem; color: var(--muted); cursor: pointer;
-    list-style: none; display: flex; align-items: center; gap: .4rem;
-    border-top: 1px solid var(--border);
-}
-details.hx-entries summary::-webkit-details-marker { display: none; }
-</style>
-
-<div class="page-header">
-    <h1><i class="bi bi-calendar3 text-accent me-1"></i> Verlauf</h1>
-    <span class="date-badge">7 Tage</span>
-</div>
-
-<?php if (empty(array_filter($tageCalc, fn($t) => !$t['leer']))): ?>
+<?php if (!$hatDaten): ?>
 <div class="empty-state">
     <i class="bi bi-calendar-x"></i>
     <p>Noch keine Einträge vorhanden.</p>
+    <div class="btn-row"><button type="button" class="scan-btn" onclick="zxingStart()"><i class="bi bi-upc-scan"></i>Erstes Produkt scannen</button></div>
 </div>
 <?php else: ?>
 
-<!-- ── Tages-Cards ──────────────────────────────────────────────── -->
-<?php foreach ($tageCalc as $i => $t):
-    $tag       = $t['tag'];
-    $datum     = $t['datum'];
-    $datumObj  = new DateTime($datum);
-    $gestern   = date('Y-m-d', strtotime('-1 day'));
-    $wdLang    = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'][(int)date('w', strtotime($datum))];
-    $label     = $datum === $gestern ? 'Gestern' : $wdLang;
-    $accent    = $t['leer'] ? 'var(--border)' : ($t['uebrig'] >= 0 ? '#4ade80' : '#ef4444');
+<!-- ── Zeitraum + Kennzahlen ────────────────────────────────────── -->
+<div class="seg" role="tablist" aria-label="Zeitraum" style="margin:.25rem .85rem 0;" id="rangeSeg">
+    <button type="button" data-range="7"   role="tab">7 T</button>
+    <button type="button" data-range="30"  role="tab" class="active">30 T</button>
+    <button type="button" data-range="90"  role="tab">90 T</button>
+    <button type="button" data-range="365" role="tab">Jahr</button>
+</div>
 
-    // Makro-Anteile nach kcal-Beitrag
-    $eK = $tag['eiweiss'] * 4; $fK = $tag['fett'] * 9; $kK = $tag['kh'] * 4;
+<div class="stat3">
+    <div><small>Ø kcal</small><b id="stAvg">–</b></div>
+    <div><small>Im Ziel</small><b id="stZiel">–</b></div>
+    <div><small>Serie</small><b><?= $serie ?> <span>T</span></b></div>
+</div>
+
+<div class="tile chart-tile">
+    <div class="ch"><span><b>Kalorien</b> vs. Ziel</span><span id="chRange"></span></div>
+    <div style="height:150px;"><canvas id="kcalChart" aria-label="Kalorien pro Tag im Vergleich zum Ziel" role="img"></canvas></div>
+</div>
+
+<?php if (count($gewichte) > 1): ?>
+<div class="tile chart-tile">
+    <div class="ch"><span><b>Gewicht</b> · Trend</span><span id="chGewDelta"></span></div>
+    <div style="height:110px;"><canvas id="weightChart" aria-label="Gewichtsmessungen mit Trendlinie" role="img"></canvas></div>
+</div>
+<?php endif; ?>
+
+<!-- ── Tages-Karten der letzten 7 Tage ──────────────────────────── -->
+<div class="section-label"><span>Letzte 7 Tage</span></div>
+
+<?php foreach ($tage7 as $datum => $t):
+    $label = $datum === $gestern ? 'Gestern'
+        : ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'][(int)date('w', strtotime($datum))];
+    $over  = !$t['leer'] && $t['uebrig'] < 0;
+    $eK = $t['eiweiss'] * 4; $fK = $t['fett'] * 9; $kK = $t['kh'] * 4;
     $mSum = $eK + $fK + $kK;
 ?>
-<div class="hx-day <?= $t['leer'] ? 'hx-day--leer' : '' ?>" id="day-<?= $datum ?>" style="--hx-accent:<?= $accent ?>;<?= $i === 0 ? 'margin-top:.75rem;' : '' ?>">
+<div class="hx-day <?= $t['leer'] ? 'hx-day--leer' : '' ?>" id="day-<?= $datum ?>">
     <div class="hx-day__head">
         <div class="hx-day__date">
             <b><?= $label ?></b>
-            <span><?= $datumObj->format('d.m.') ?></span>
+            <span><?= date('d.m.', strtotime($datum)) ?></span>
         </div>
         <div class="hx-day__kcal">
-            <b><?= round($t['gegessen']) ?> kcal</b><?php if (!$t['leer']): ?><span class="hx-delta" style="background:<?= $t['uebrig'] >= 0 ? 'rgba(74,222,128,.15)' : 'rgba(239,68,68,.18)' ?>;color:<?= $t['uebrig'] >= 0 ? '#4ade80' : '#f87171' ?>;"><?= $t['uebrig'] >= 0 ? round($t['uebrig']) . ' übrig' : '+' . round(-$t['uebrig']) ?></span><?php endif; ?>
-            <small>von <?= round($t['ziel']) ?> kcal</small>
+            <b class="num"><?= fmtZahl($t['kcal']) ?></b>
+            <?php if (!$t['leer']): ?>
+            <span class="hx-delta <?= $over ? 'over' : '' ?>"><?= $over ? '+' . fmtZahl(-$t['uebrig']) : fmtZahl($t['uebrig']) . ' übrig' ?></span>
+            <?php endif; ?>
+            <small>von <?= fmtZahl($t['ziel']) ?> kcal</small>
         </div>
     </div>
 
@@ -307,62 +128,73 @@ details.hx-entries summary::-webkit-details-marker { display: none; }
     <div class="hx-empty"><i class="bi bi-moon-stars me-1"></i> Keine Einträge an diesem Tag</div>
     <?php else: ?>
 
-    <div class="hx-chips">
-        <span class="hx-chip">Ziel <b><?= round($t['basisZiel']) ?></b></span>
-        <?php if ($t['aktivKcal'] > 0): ?>
-        <span class="hx-chip" style="color:var(--warn);">Aktiv <b style="color:var(--warn);">+<?= round($t['aktivKcal']) ?></b></span>
-        <?php endif; ?>
-        <span class="hx-chip"><?= (int)$tag['anzahl'] ?> Einträge</span>
-    </div>
+    <div class="hx-body">
+        <div class="pbar thin"><i class="<?= $over ? 'pb-over' : 'pb-eaten' ?>" style="width:<?= min(100, round($t['kcal'] / max(1, $t['ziel']) * 100)) ?>%;<?= $over ? '' : 'background:var(--accent);' ?>"></i></div>
+        <div class="hx-chips">
+            <span class="hx-chip">Ziel <b class="num"><?= fmtZahl($t['basisZiel']) ?></b></span>
+            <?php if ($t['aktivKcal'] > 0): ?>
+            <span class="hx-chip">Aktiv <b class="text-accent num">+<?= fmtZahl($t['aktivKcal']) ?></b></span>
+            <?php endif; ?>
+            <span class="hx-chip"><?= $t['anzahl'] ?> Einträge</span>
+        </div>
 
-    <?php if ($zeigeMakros && $mSum > 0): ?>
-    <div class="hx-macro">
-        <div class="hx-macro__bar">
-            <i style="width:<?= round($eK / $mSum * 100, 1) ?>%;background:#60a5fa;"></i>
-            <i style="width:<?= round($fK / $mSum * 100, 1) ?>%;background:#fb923c;"></i>
-            <i style="width:<?= round($kK / $mSum * 100, 1) ?>%;background:#a78bfa;"></i>
+        <?php if ($zeigeMakros && $mSum > 0): ?>
+        <div class="hx-macro">
+            <div class="hx-macro__bar">
+                <i class="c-prot bg-c" style="width:<?= round($eK / $mSum * 100, 1) ?>%;"></i>
+                <i class="c-fat bg-c"  style="width:<?= round($fK / $mSum * 100, 1) ?>%;"></i>
+                <i class="c-carb bg-c" style="width:<?= round($kK / $mSum * 100, 1) ?>%;"></i>
+            </div>
+            <div class="hx-macro__legend">
+                <span><i class="hx-dot c-prot bg-c"></i>Eiweiß <b><?= round($t['eiweiss']) ?> g</b></span>
+                <span><i class="hx-dot c-fat bg-c"></i>Fett <b><?= round($t['fett']) ?> g</b></span>
+                <span><i class="hx-dot c-carb bg-c"></i>KH <b><?= round($t['kh']) ?> g</b></span>
+            </div>
         </div>
-        <div class="hx-macro__legend">
-            <span><i class="hx-dot" style="background:#60a5fa;"></i>Eiweiß <b><?= round($tag['eiweiss']) ?>g</b></span>
-            <span><i class="hx-dot" style="background:#fb923c;"></i>Fett <b><?= round($tag['fett']) ?>g</b></span>
-            <span><i class="hx-dot" style="background:#a78bfa;"></i>KH <b><?= round($tag['kh']) ?>g</b></span>
-        </div>
+        <?php endif; ?>
     </div>
-    <?php endif; ?>
 
     <?php if (!empty($eintraege[$datum])): ?>
     <details class="hx-entries">
         <summary>
-            <i class="bi bi-chevron-right" style="font-size:.7rem;transition:transform .2s;"></i>
+            <i class="bi bi-chevron-right"></i>
             Einträge anzeigen
         </summary>
-        <?php foreach ($eintraege[$datum] as $e): ?>
-        <div class="swipe-entry" id="entry-<?= $e['id'] ?>">
-            <div class="swipe-entry__content">
-                <?= entryIcon((int)($e['gericht_id'] ?? 0) ?: null, $e['quelle'] ?? null, isset($e['produkt_id']) ? ($e['produkt_id'] === null ? null : (int)$e['produkt_id']) : null) ?>
-                <div class="flex-grow-1 overflow-hidden">
-                    <div class="entry-name text-truncate"><?= htmlspecialchars($e['name']) ?></div>
-                    <div class="entry-meta">
-                        <?= rtrim(rtrim(number_format($e['menge_g'],1,',',''),'0'),',') ?>g
-                        &middot; <?= round($e['kcal']) ?> kcal
-                    </div>
+        <div class="timeline" style="margin:0;">
+        <?php foreach ($eintraege[$datum] as $e):
+            $cls  = entrySourceClass((int)($e['gericht_id'] ?? 0) ?: null, $e['quelle'] ?? null, $e['produkt_id'] === null ? null : (int)$e['produkt_id']);
+            $k100 = $e['kcal'] > 0 && $e['menge_g'] > 0 ? round($e['kcal'] / $e['menge_g'] * 100, 2) : 0;
+            $name = htmlspecialchars($e['name'], ENT_QUOTES);
+        ?>
+        <div class="swipe-entry<?= $cls === 'src-quick' ? ' single-action' : '' ?>" id="entry-<?= $e['id'] ?>">
+            <div class="swipe-entry__content"
+                 <?php if ($cls !== 'src-quick'): ?>data-edit-id="<?= $e['id'] ?>" data-edit-name="<?= $name ?>"
+                 data-edit-menge="<?= (float)$e['menge_g'] ?>" data-edit-kcal100g="<?= $k100 ?>"<?php endif; ?>>
+                <span class="tl-time"><?= date('H:i', strtotime($e['erstellt_am'])) ?></span>
+                <span class="tl-dot <?= $cls ?>" title="<?= entrySourceLabel($cls) ?>"></span>
+                <div class="tl-text">
+                    <span class="tl-name"><?= htmlspecialchars($e['name']) ?></span>
+                    <span class="tl-meta"><?= $cls === 'src-quick' ? 'Schneller Eintrag' : fmtMenge($e['menge_g']) . ' g' ?></span>
                 </div>
+                <span class="tl-kcal num"><?= round($e['kcal']) ?></span>
             </div>
             <div class="swipe-entry__actions">
+                <?php if ($cls !== 'src-quick'): ?>
                 <button class="swipe-action-edit"
                         data-entry-id="<?= $e['id'] ?>"
-                        data-entry-name="<?= htmlspecialchars($e['name'], ENT_QUOTES) ?>"
+                        data-entry-name="<?= $name ?>"
                         data-menge-g="<?= (float)$e['menge_g'] ?>"
-                        data-kcal100g="<?= $e['kcal'] > 0 && $e['menge_g'] > 0 ? round($e['kcal'] / $e['menge_g'] * 100, 2) : 0 ?>">
+                        data-kcal100g="<?= $k100 ?>">
                     <i class="bi bi-pencil"></i>Bearbeiten
                 </button>
-                <button class="swipe-action-delete"
-                        data-entry-id="<?= $e['id'] ?>">
+                <?php endif; ?>
+                <button class="swipe-action-delete" data-entry-id="<?= $e['id'] ?>">
                     <i class="bi bi-trash3"></i>Löschen
                 </button>
             </div>
         </div>
         <?php endforeach; ?>
+        </div>
     </details>
     <?php endif; ?>
 
@@ -371,6 +203,62 @@ details.hx-entries summary::-webkit-details-marker { display: none; }
 <?php endforeach; ?>
 
 <?php endif; ?>
+
+<style>
+/* ── Verlauf: Tageskarten ─────────────────────────────────────── */
+.hx-day {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 0 .85rem .6rem;
+    overflow: hidden;
+    scroll-margin-top: 5rem;
+}
+.hx-day--leer { opacity: .55; }
+.hx-day:target { border-color: var(--accent); }
+.hx-day__head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    padding: .85rem 1rem .5rem;
+}
+.hx-day__date b { font-size: 1rem; font-weight: 700; display: block; }
+.hx-day__date span { font-size: .78rem; color: var(--muted); }
+.hx-day__kcal { text-align: right; }
+.hx-day__kcal b { font-size: 1.25rem; font-weight: 700; }
+.hx-day__kcal small { font-size: .72rem; color: var(--muted); display: block; }
+.hx-delta {
+    display: inline-block; font-size: .72rem; font-weight: 600;
+    border-radius: 99px; padding: .12rem .5rem; margin-left: .35rem;
+    vertical-align: 3px;
+    background: var(--accent-soft); color: var(--accent);
+}
+.hx-delta.over { background: var(--danger-soft); color: var(--danger); }
+.hx-body { padding: 0 1rem .75rem; }
+.hx-body .pbar { margin-top: 0; }
+.hx-chips { display: flex; gap: .35rem; flex-wrap: wrap; margin-top: .6rem; }
+.hx-chip {
+    font-size: .75rem; color: var(--muted);
+    background: var(--surface2);
+    border-radius: 99px; padding: .2rem .6rem;
+}
+.hx-chip b { color: var(--text); font-weight: 600; }
+.hx-macro { margin-top: .65rem; }
+.hx-macro__bar { display: flex; height: 6px; border-radius: 99px; overflow: hidden; background: var(--surface2); gap: 2px; }
+.hx-macro__bar i { height: 100%; }
+.hx-macro__legend { display: flex; gap: .8rem; margin-top: .4rem; font-size: .75rem; color: var(--muted); flex-wrap: wrap; }
+.hx-macro__legend b { color: var(--text); font-weight: 600; }
+.hx-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: .3rem; }
+.hx-empty { padding: 0 1rem .85rem; font-size: .82rem; color: var(--muted); }
+details.hx-entries summary {
+    padding: .7rem 1rem; min-height: 2.75rem;
+    font-size: .82rem; color: var(--muted); cursor: pointer;
+    list-style: none; display: flex; align-items: center; gap: .45rem;
+    border-top: 1px solid var(--border);
+}
+details.hx-entries summary::-webkit-details-marker { display: none; }
+details.hx-entries summary i { font-size: .7rem; transition: transform .2s; }
+details.hx-entries[open] summary i { transform: rotate(90deg); }
+.hx-entries .swipe-entry__content { background: var(--surface) !important; padding-left: 1rem !important; }
+</style>
 
 <!-- Toast -->
 <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x mb-5 pb-4">
@@ -382,15 +270,110 @@ details.hx-entries summary::-webkit-details-marker { display: none; }
     </div>
 </div>
 
+<?php if ($hatDaten): ?>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-// Details chevron
-document.querySelectorAll('details').forEach(d => {
-    d.addEventListener('toggle', () => {
-        const icon = d.querySelector('summary .bi-chevron-right');
-        if (icon) icon.style.transform = d.open ? 'rotate(90deg)' : '';
-    });
-});
+const TAGE     = <?= json_encode($chartTage) ?>;
+const GEWICHTE = <?= json_encode($gewichte) ?>;
 
+const css  = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C    = { accent: css('--accent'), danger: css('--danger'), text: css('--text'), muted: css('--muted'), border: css('--border'), faint: css('--faint') };
+const fmt  = n => Math.round(n).toLocaleString('de-DE');
+const dLbl = d => { const [y, m, t] = d.split('-'); return t + '.' + m + '.'; };
+
+Chart.defaults.font.family = css('--font');
+Chart.defaults.color = C.muted;
+
+function hexA(hex, a) {
+    const h = hex.replace('#', '');
+    const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+    return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+}
+
+// EWMA wie im Gewichtschart auf der Profilseite
+function ewma(w) {
+    const a = Math.max(0.1, Math.min(0.4, 2 / (w.length + 1)));
+    const r = [w[0]];
+    for (let i = 1; i < w.length; i++) r.push(a * w[i] + (1 - a) * r[i - 1]);
+    return r;
+}
+
+const baseOpts = {
+    responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: false },
+        tooltip: { backgroundColor: css('--surface2'), borderColor: C.border, borderWidth: 1,
+                   titleColor: C.text, bodyColor: C.text, padding: 10, displayColors: false } },
+    scales: {
+        x: { grid: { display: false }, border: { display: false }, ticks: { maxTicksLimit: 5, maxRotation: 0, font: { size: 10 } } },
+        y: { grid: { color: C.border }, border: { display: false }, ticks: { maxTicksLimit: 4, font: { size: 10 } } },
+    },
+};
+
+let kcalChart = null, weightChart = null;
+
+function render(range) {
+    const tage = TAGE.slice(-range);
+    const lbl  = tage.map(t => dLbl(t.d));
+    const over = tage.map(t => t.k !== null && t.k > t.z);
+    const ctx  = document.getElementById('kcalChart').getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 150);
+    grad.addColorStop(0, hexA(C.accent, .35)); grad.addColorStop(1, hexA(C.accent, 0));
+
+    const ds = [
+        { data: tage.map(t => t.k), borderColor: C.accent, backgroundColor: grad, fill: 'origin',
+          borderWidth: 2, tension: .3, spanGaps: true,
+          pointRadius: over.map(o => o ? (range > 90 ? 2 : 3.5) : 0), pointBackgroundColor: C.danger, pointBorderWidth: 0,
+          label: 'Gegessen' },
+        { data: tage.map(t => t.z), borderColor: C.muted, borderDash: [3, 4], borderWidth: 1,
+          pointRadius: 0, stepped: true, fill: false, label: 'Ziel' },
+    ];
+    if (kcalChart) { kcalChart.data.labels = lbl; kcalChart.data.datasets = ds; kcalChart.update(); }
+    else kcalChart = new Chart(ctx, { type: 'line', data: { labels: lbl, datasets: ds },
+        options: { ...baseOpts, plugins: { ...baseOpts.plugins, tooltip: { ...baseOpts.plugins.tooltip,
+            callbacks: { label: c => c.raw === null ? null : `${c.dataset.label}: ${fmt(c.raw)} kcal` } } } } });
+
+    // Kennzahlen für den Zeitraum (nur Tage mit Einträgen)
+    const aktiv = tage.filter(t => t.k !== null);
+    document.getElementById('stAvg').textContent  = aktiv.length ? fmt(aktiv.reduce((s, t) => s + t.k, 0) / aktiv.length) : '–';
+    document.getElementById('stZiel').textContent = aktiv.length ? Math.round(aktiv.filter(t => t.k <= t.z).length / aktiv.length * 100) + '%' : '–';
+    document.getElementById('chRange').textContent = tage.length ? dLbl(tage[0].d) + ' – ' + dLbl(tage[tage.length - 1].d) : '';
+
+    // Gewicht
+    const wEl = document.getElementById('weightChart');
+    if (!wEl) return;
+    const von = tage.length ? tage[0].d : '';
+    const gw  = GEWICHTE.filter(g => g.d >= von);
+    const dEl = document.getElementById('chGewDelta');
+    if (gw.length < 2) {
+        if (weightChart) { weightChart.data.labels = []; weightChart.data.datasets.forEach(d => d.data = []); weightChart.update(); }
+        dEl.textContent = 'zu wenig Messungen';
+        return;
+    }
+    const trend = ewma(gw.map(g => g.kg));
+    const delta = trend[trend.length - 1] - trend[0];
+    dEl.textContent = (delta > 0 ? '+' : '−') + Math.abs(delta).toFixed(1).replace('.', ',') + ' kg';
+    dEl.style.color = delta <= 0 ? C.accent : C.muted;
+    const wds = [
+        { data: gw.map(g => g.kg), showLine: false, pointRadius: 2.5, pointBackgroundColor: C.faint, pointBorderWidth: 0, label: 'Messung' },
+        { data: trend.map(v => +v.toFixed(2)), borderColor: C.text, borderWidth: 2.2, pointRadius: 0, tension: .3, label: 'Trend' },
+    ];
+    const wl = gw.map(g => dLbl(g.d));
+    if (weightChart) { weightChart.data.labels = wl; weightChart.data.datasets = wds; weightChart.update(); }
+    else weightChart = new Chart(wEl, { type: 'line', data: { labels: wl, datasets: wds },
+        options: { ...baseOpts, plugins: { ...baseOpts.plugins, tooltip: { ...baseOpts.plugins.tooltip,
+            callbacks: { label: c => `${c.dataset.label}: ${String(c.raw).replace('.', ',')} kg` } } } } });
+}
+
+document.querySelectorAll('#rangeSeg button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('#rangeSeg button').forEach(x => { x.classList.toggle('active', x === b); x.setAttribute('aria-selected', x === b); });
+    render(parseInt(b.dataset.range));
+}));
+render(30);
+</script>
+<?php endif; ?>
+
+<script>
 function showToast(msg) {
     document.getElementById('toastMsg').textContent = msg;
     bootstrap.Toast.getOrCreateInstance(document.getElementById('toast')).show();
@@ -401,6 +384,11 @@ function showToast(msg) {
 document.querySelectorAll('details').forEach(d => {
     d.addEventListener('toggle', () => { if (d.open) initSwipeEntries(); });
 });
+
+// Sprung aus dem Wochenstreifen (#day-YYYY-MM-DD): Einträge direkt aufklappen
+if (location.hash.startsWith('#day-')) {
+    document.querySelector(location.hash + ' details')?.setAttribute('open', '');
+}
 </script>
 
 <?php renderFooter('history'); ?>

@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS profil (
     eintraege_gruppieren TINYINT(1) DEFAULT 0,
     hilfetext_anzeigen   TINYINT(1) DEFAULT 1,
     makros_anzeigen      TINYINT(1) DEFAULT 1,
+    startseite           VARCHAR(20) DEFAULT 'heute',  -- Seite beim App-Start (siehe startseiten() in includes/ui.php)
     erstellt_am     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     aktualisiert_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -246,3 +247,6 @@ INNER JOIN (
 ) e ON e.produkt_id = p.id
 SET p.ersteller_id = e.user_id
 WHERE p.quelle = 'manuell' AND p.ersteller_id IS NULL;
+
+-- 11. Startseite pro Nutzer (Einstellungen → Ansicht):
+ALTER TABLE profil ADD COLUMN IF NOT EXISTS startseite VARCHAR(20) DEFAULT 'heute' AFTER makros_anzeigen;

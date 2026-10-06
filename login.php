@@ -2,19 +2,16 @@
 require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/layout.php';
 
 // Bereits eingeloggt?
 if (currentUser()) {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-           || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'
-            ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    header("Location: {$scheme}://{$host}/index.php");
-    exit;
+    redirectTo('/start.php');
 }
 
 $error  = '';
-$next   = preg_replace('/[^a-zA-Z0-9\/\-_\.]/', '', $_GET['next'] ?? '/index.php');
+// Nur interne Pfade (inkl. Query, z.B. /log.php?pick=1) – siehe safeRedirectPath()
+$next   = safeRedirectPath($_GET['next'] ?? '/start.php', '/start.php');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Rate Limiting
@@ -52,11 +49,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmtR->execute();
                 }
 
-                $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-                       || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'
-                        ? 'https' : 'http';
-                $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-
                 // Erstes Login ohne abgeschlossene OOBE → Onboarding
                 try {
                     $stmtOobe = $db->prepare("SELECT oobe_abgeschlossen FROM users WHERE id = ? LIMIT 1");
@@ -64,14 +56,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $stmtOobe->bind_param('i', $user['id']); $stmtOobe->execute();
                         $oobe = $stmtOobe->get_result()->fetch_assoc();
                         if (empty($oobe['oobe_abgeschlossen'])) {
-                            header("Location: {$scheme}://{$host}/oobe.php"); exit;
+                            redirectTo('/oobe.php');
                         }
                     }
                 } catch (Exception $e) { /* Spalte noch nicht migriert, OOBE überspringen */ }
 
-                $nextUrl = strpos($next, 'http') === 0 ? $next : "{$scheme}://{$host}{$next}";
-                header("Location: {$nextUrl}");
-                exit;
+                redirectTo($next);
             } else {
                 // Kurze Verzögerung gegen Timing-Angriffe
                 usleep(random_int(100000, 300000));
@@ -88,86 +78,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#0f1117">
+    <?php renderPwaMeta(); ?>
     <title>Login – <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/space-grotesk@5/index.css">
+    <link rel="stylesheet" href="/assets/css/app.css?v=42">
     <style>
     body {
         min-height: 100dvh;
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 1.5rem;
-        padding-top: env(safe-area-inset-top);
+        padding: 1.5rem 1rem;
+        padding-top: max(1.5rem, env(safe-area-inset-top));
     }
-    .login-card {
-        width: 100%;
-        max-width: 380px;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 24px;
-        padding: 2rem 1.75rem;
-    }
-    .login-logo {
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .login-logo i {
-        font-size: 3rem;
-        color: var(--accent);
-        display: block;
-        margin-bottom: .5rem;
-    }
+    .login-card { width: 100%; max-width: 380px; }
+    .login-logo { margin-bottom: 2rem; }
+    .login-logo img { height: 84px; display: block; margin-bottom: 1.25rem; }
     .login-logo h1 {
-        font-size: 1.4rem;
-        font-weight: 800;
-        margin: 0;
+        font-size: 2.6rem; font-weight: 700; letter-spacing: -.04em; line-height: .95; margin: 0;
     }
-    .login-logo p {
-        color: var(--muted);
-        font-size: .85rem;
-        margin: .25rem 0 0;
-    }
-    .login-input {
-        background: var(--surface2) !important;
-        border-color: var(--border) !important;
-        color: var(--text) !important;
-        border-radius: 12px !important;
-        padding: .75rem 1rem !important;
-        font-size: 1rem !important;
-    }
-    .login-input:focus {
-        border-color: var(--accent) !important;
-        box-shadow: 0 0 0 3px rgba(74,222,128,.15) !important;
-    }
+    .login-logo h1 span { color: var(--accent); }
+    .login-logo p { color: var(--muted); font-size: .95rem; margin: .6rem 0 0; }
+    .login-input { min-height: 3.2rem; font-size: 1.05rem !important; }
     .login-btn {
-        width: 100%;
-        padding: .85rem;
-        background: var(--accent);
-        color: #000;
-        border: none;
-        border-radius: 14px;
-        font-size: 1rem;
-        font-weight: 700;
-        margin-top: .5rem;
-        cursor: pointer;
-        transition: opacity .15s;
+        width: 100%; min-height: 3.3rem;
+        background: var(--accent); color: var(--accent-ink);
+        border: none; border-radius: 16px;
+        font: 700 1.05rem var(--font);
+        margin-top: .75rem; cursor: pointer; transition: opacity .15s;
     }
     .login-btn:active { opacity: .85; }
+    .alert-danger { background: var(--danger-soft) !important; border-color: var(--danger) !important; color: var(--danger) !important; }
     </style>
 </head>
-<body>
+<body class="no-nav">
 <div class="login-card">
     <div class="login-logo">
-        <img src="assets/icons/splash_logo.png" style="height:150px"></img>
-        <h1><?= APP_NAME ?></h1>
+        <img src="/assets/icons/logo.svg?v=<?= @filemtime(__DIR__ . '/assets/icons/logo.svg') ?: 1 ?>" alt="">
+        <h1><?= preg_replace('/^(Kalorien)(.*)$/u', '$1<span>$2</span>', htmlspecialchars(APP_NAME)) ?></h1>
         <p>Bitte anmelden</p>
     </div>
 
     <?php if ($error): ?>
-    <div class="alert alert-danger d-flex align-items-center gap-2 mb-3" style="border-radius:12px;font-size:.88rem;">
+    <div class="alert alert-danger d-flex align-items-center gap-2 mb-3" style="border-radius:14px;font-size:.9rem;">
         <i class="bi bi-exclamation-triangle-fill"></i>
         <?= htmlspecialchars($error) ?>
     </div>
@@ -178,18 +133,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <input type="hidden" name="next" value="<?= htmlspecialchars($next) ?>">
 
         <div class="mb-3">
-            <label class="form-label" style="color:var(--muted);font-size:.82rem;">Benutzername</label>
+            <label class="form-label">Benutzername</label>
             <input type="text" name="username" class="login-input form-control"
                    value="<?= htmlspecialchars($_POST['username'] ?? '') ?>"
                    autocomplete="username" autofocus required>
         </div>
         <div class="mb-3">
-            <label class="form-label" style="color:var(--muted);font-size:.82rem;">Passwort</label>
+            <label class="form-label">Passwort</label>
             <div style="position:relative;">
                 <input type="password" name="password" id="pwInput" class="login-input form-control"
                        autocomplete="current-password" required style="padding-right:3rem;">
-                <button type="button" onclick="togglePw()"
-                        style="position:absolute;right:.75rem;top:50%;transform:translateY(-50%);
+                <button type="button" onclick="togglePw()" aria-label="Passwort anzeigen"
+                        style="position:absolute;right:.2rem;top:50%;transform:translateY(-50%);width:2.75rem;height:2.75rem;
                                background:none;border:none;color:var(--muted);font-size:1.1rem;padding:0;">
                     <i class="bi bi-eye" id="pwEye"></i>
                 </button>

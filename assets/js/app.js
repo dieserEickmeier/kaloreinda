@@ -108,7 +108,7 @@ function openEditModal(id, name, mengeG, kcal100g) {
     document.getElementById('editMengeInput').value      = mengeG;
     updateEditPreview();
     modal.style.display = 'flex';
-    setTimeout(() => document.getElementById('editMengeInput').select(), 100);
+    document.getElementById('editMengeInput').dispatchEvent(new Event('input'));
 }
 
 function closeEditModal() {
@@ -121,7 +121,7 @@ function updateEditPreview() {
     const kcal100g = parseFloat(document.getElementById('editEntryModal')?.dataset.kcal100g) || 0;
     const menge    = parseFloat(document.getElementById('editMengeInput')?.value) || 0;
     const el       = document.getElementById('editKcalPreview');
-    if (el) el.textContent = kcal100g > 0 ? Math.round(kcal100g * menge / 100) + ' kcal' : menge + ' g';
+    if (el) el.textContent = kcal100g > 0 ? Math.round(kcal100g * menge / 100) : '–';
 }
 
 async function saveEditEntry() {
@@ -207,7 +207,7 @@ function setupPortionToggle(portionG, mengeInputId) {
 
     function updatePortionLabel() {
         const ps = getPortionSize();
-        btnPortion.textContent = ps > 0 ? `Portionen (${ps} g)` : 'Portionen';
+        btnPortion.textContent = ps > 0 ? `Portionen (${Number(ps).toLocaleString('de-DE')} g)` : 'Portionen';
     }
 
     function setMode(newMode) {
@@ -253,8 +253,110 @@ function setupPortionToggle(portionG, mengeInputId) {
     setMode('gramm');
 }
 
+// ── Lineal-Slider für Mengenfelder ───────────────────────────────────────
+// Markup: <div class="ruler" data-ruler-for="<input-id>"></div>
+// Das Lineal liest min/max/step direkt vom Input (und baut sich neu, wenn
+// z.B. setupPortionToggle() sie ändert). Wischen setzt input.value und
+// feuert 'input' – bestehende Handler (kcal-Vorschau) laufen unverändert.
+// Werte außerhalb des Lineal-Bereichs (z.B. 1500 g getippt) bleiben
+// erhalten: der Wert wird nur bei aktiver Nutzer-Geste vom Lineal gesetzt.
+function initRuler(el) {
+    const input = document.getElementById(el.dataset.rulerFor);
+    if (!input || el.dataset.rulerInit) return;
+    el.dataset.rulerInit = '1';
+    el.innerHTML = '<div class="ruler__scroll"><div class="ruler__track" style="display:flex;height:100%;">' +
+        '<div style="flex:none;width:50%;"></div><div class="ruler__ticks" style="flex:none;position:relative;height:100%;"></div>' +
+        '<div style="flex:none;width:50%;"></div></div></div><div class="ruler__needle"></div>';
+    const sc    = el.querySelector('.ruler__scroll');
+    const ticks = el.querySelector('.ruler__ticks');
+    let cfg = null, userActive = false, endTimer = 0, programmatic = false;
+
+    function build() {
+        const st     = parseFloat(input.step) || 1;
+        // Feine Skala nur für Portionsschritte (½), nicht für Gramm-Felder mit step=0.1
+        const fine   = st >= 0.25 && st < 1;
+        const step   = fine ? st : 5;
+        const min    = Math.max(0, parseFloat(input.min) || 0);
+        const maxIn  = parseFloat(input.max) || 1000;
+        const max    = Math.min(maxIn, fine ? 10 : 1000);
+        const start  = 0;
+        const px     = fine ? 18 : 8;
+        const major  = fine ? Math.round(1 / step) : 10;
+        const n      = Math.round((max - start) / step);
+        cfg = { step, start, min, max, px, fine };
+        let html = '';
+        for (let i = 0; i <= n; i++) {
+            const v = start + i * step;
+            const cls = i % major === 0 ? ' major' : (i % (major / 2) === 0 ? ' mid' : '');
+            html += `<span class="ruler__tick${cls}" style="left:${i * px}px"></span>`;
+            if (i % major === 0) html += `<span class="ruler__lab" style="left:${i * px}px">${fine ? v.toLocaleString('de-DE') : v}</span>`;
+        }
+        ticks.style.width = (n * px) + 'px';
+        ticks.innerHTML = html;
+        sync();
+    }
+
+    function sync() {
+        if (!cfg || userActive) return;
+        const v = parseFloat(String(input.value).replace(',', '.')) || 0;
+        const x = (Math.min(Math.max(v, cfg.start), cfg.max) - cfg.start) / cfg.step * cfg.px;
+        programmatic = true;
+        sc.scrollLeft = x;
+        requestAnimationFrame(() => { programmatic = false; });
+    }
+
+    function valueFromScroll() {
+        const raw = cfg.start + Math.round(sc.scrollLeft / cfg.px) * cfg.step;
+        return Math.min(Math.max(raw, cfg.min || cfg.step), cfg.max);
+    }
+
+    sc.addEventListener('scroll', () => {
+        if (programmatic || !userActive || !cfg) return;
+        const v = valueFromScroll();
+        const r = Math.round(v * 10) / 10;
+        if (parseFloat(input.value) !== r) {
+            input.value = r;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        clearTimeout(endTimer);
+        endTimer = setTimeout(() => { userActive = false; sync(); }, 160);
+    }, { passive: true });
+
+    ['touchstart', 'pointerdown', 'wheel'].forEach(ev =>
+        sc.addEventListener(ev, () => { userActive = true; }, { passive: true }));
+
+    // Maus-Ziehen (Desktop)
+    let dragX = null, dragLeft = 0;
+    sc.addEventListener('pointerdown', e => {
+        if (e.pointerType !== 'mouse') return;
+        dragX = e.clientX; dragLeft = sc.scrollLeft; sc.setPointerCapture(e.pointerId);
+    });
+    sc.addEventListener('pointermove', e => { if (dragX !== null) sc.scrollLeft = dragLeft - (e.clientX - dragX); });
+    sc.addEventListener('pointerup',   () => { dragX = null; });
+
+    input.addEventListener('input', () => { if (!userActive) sync(); });
+    new MutationObserver(build).observe(input, { attributes: true, attributeFilter: ['min', 'max', 'step'] });
+    if (window.ResizeObserver) new ResizeObserver(() => sync()).observe(el);
+    build();
+}
+
+function initRulers(root) {
+    (root || document).querySelectorAll('.ruler[data-ruler-for]').forEach(initRuler);
+}
+
+// ── Tipp auf Zeitleisten-Eintrag öffnet „Bearbeiten“ ─────────────────────
+document.addEventListener('click', e => {
+    const row = e.target.closest('[data-edit-id]');
+    if (!row || e.target.closest('.swipe-entry__actions')) return;
+    const sw = row.closest('.swipe-entry');
+    if (sw && sw.classList.contains('open')) { sw.classList.remove('open'); return; }
+    const d = row.dataset;
+    openEditModal(parseInt(d.editId), d.editName, parseFloat(d.editMenge), parseFloat(d.editKcal100g));
+});
+
 // ── Auto-Init ─────────────────────────────────────────────────────────────
 initSwipeEntries();
+initRulers();
 
 // ── Info-Tooltips ─────────────────────────────────────────────────────────
 document.addEventListener('click', function(e) {
@@ -293,7 +395,7 @@ async function refreshHeute() {
         const r = await fetch('/index.php', { cache: 'no-store' });
         const html = await r.text();
         const doc = new DOMParser().parseFromString(html, 'text/html');
-        ['kcalRingWrap', 'makroCard'].forEach(id => {
+        ['kcalRingWrap', 'makroCard', 'weekStrip'].forEach(id => {
             const neu = doc.getElementById(id);
             const alt = document.getElementById(id);
             if (neu && alt) alt.replaceWith(neu);

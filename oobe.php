@@ -2,6 +2,7 @@
 require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/layout.php';
 $currentUser = requireLogin();
 $userId      = $currentUser['id'];
 $db          = db();
@@ -68,7 +69,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Willkommen – KalorienTracker</title>
-    <link rel="stylesheet" href="/assets/css/app.css?v=4">
+    <?php renderPwaMeta(); ?>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/space-grotesk@5/index.css">
+    <link rel="stylesheet" href="/assets/css/app.css?v=42">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         body { background: var(--bg); color: var(--text); min-height: 100vh;
@@ -78,58 +81,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .oobe-wrap { width: 100%; max-width: 420px; }
 
         /* Fortschrittsbalken */
-        .oobe-progress { display: flex; gap: .35rem; margin-bottom: 2rem; }
-        .oobe-dot { flex: 1; height: 3px; border-radius: 999px;
-                    background: var(--border); transition: background .3s; }
+        .oobe-progress { display: flex; gap: 4px; margin-bottom: 2.25rem; }
+        .oobe-dot { flex: 1; height: 6px; border-radius: 999px;
+                    background: var(--surface2); transition: background .3s; }
         .oobe-dot.done   { background: var(--accent); }
-        .oobe-dot.active { background: var(--accent); opacity: .5; }
+        .oobe-dot.active { background: repeating-linear-gradient(45deg, var(--accent) 0 3px, #3a4410 3px 6px); }
 
         /* Schritt-Karten */
         .oobe-step { display: none; animation: oobeFade .25s ease; }
         .oobe-step.active { display: block; }
         @keyframes oobeFade { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
 
-        .oobe-icon  { font-size: 2.5rem; color: var(--accent); margin-bottom: .75rem; display: block; }
-        .oobe-title { font-size: 1.3rem; font-weight: 800; margin-bottom: .35rem; }
-        .oobe-sub   { font-size: .88rem; color: var(--muted); margin-bottom: 1.5rem; line-height: 1.5; }
+        .oobe-icon  { font-size: 2.2rem; color: var(--accent); margin-bottom: .9rem; display: block; }
+        .oobe-title { font-size: 2rem; font-weight: 700; letter-spacing: -.035em; line-height: 1.05; margin-bottom: .5rem; }
+        .oobe-sub   { font-size: .95rem; color: var(--muted); margin-bottom: 1.5rem; line-height: 1.5; }
 
         /* Grosse Optionen-Buttons */
         .oobe-options { display: flex; flex-direction: column; gap: .6rem; margin-bottom: 1.5rem; }
-        .oobe-option  { display: flex; align-items: center; gap: .75rem;
+        .oobe-option  { display: flex; align-items: center; gap: .85rem; position: relative;
                         background: var(--surface); border: 1.5px solid var(--border);
-                        border-radius: 14px; padding: .85rem 1rem; cursor: pointer;
+                        border-radius: 18px; padding: 1rem 1.1rem; min-height: 3.75rem; cursor: pointer;
                         transition: border-color .15s, background .15s; text-align: left; }
         .oobe-option.selected, .oobe-option:has(input:checked) {
-            border-color: var(--accent); background: rgba(74,222,128,.08); }
+            border-color: var(--accent); background: var(--accent-soft); }
         .oobe-option input { position: absolute; opacity: 0; width: 0; }
         .oobe-option-icon { font-size: 1.3rem; flex-shrink: 0; }
-        .oobe-option-text { font-size: .9rem; font-weight: 600; }
-        .oobe-option-sub  { font-size: .75rem; color: var(--muted); margin-top: .1rem; }
+        .oobe-option-text { font-size: 1rem; font-weight: 600; }
+        .oobe-option-sub  { font-size: .8rem; color: var(--muted); margin-top: .1rem; }
 
         /* Nummern-Eingabe groß */
         .oobe-number { width: 100%; background: var(--surface); border: 1.5px solid var(--border);
-                       border-radius: 14px; padding: 1rem 1.25rem; color: var(--text);
-                       font-size: 1.8rem; font-weight: 700; text-align: center;
+                       border-radius: 18px; padding: 1rem 1.25rem; color: var(--text);
+                       font: 700 3rem var(--font); letter-spacing: -.03em; text-align: center;
                        outline: none; margin-bottom: .5rem; }
         .oobe-number:focus { border-color: var(--accent); }
         .oobe-unit  { text-align: center; color: var(--muted); font-size: .88rem; margin-bottom: 1.5rem; }
 
         /* Slider */
         .oobe-slider { width: 100%; accent-color: var(--accent); margin-bottom: .5rem; }
-        .oobe-slider-val { text-align: center; font-size: 1.6rem; font-weight: 800;
-                           color: var(--accent); margin-bottom: .35rem; }
-        .oobe-slider-sub { text-align: center; font-size: .78rem; color: var(--muted); margin-bottom: 1.5rem; }
+        .oobe-slider-val { text-align: center; font-size: 3rem; font-weight: 700; letter-spacing: -.03em;
+                           color: var(--text); margin-bottom: .35rem; }
+        .oobe-slider-sub { text-align: center; font-size: .82rem; color: var(--muted); margin-bottom: 1.5rem; }
 
         /* Nav-Buttons */
         .oobe-nav { display: flex; gap: .6rem; }
-        .oobe-btn-back { flex: 0 0 3rem; background: var(--surface); border: 1px solid var(--border);
-                         border-radius: 14px; color: var(--muted); font-size: 1.1rem; cursor: pointer; }
-        .oobe-btn-next { flex: 1; background: var(--accent); border: none; border-radius: 14px;
-                         padding: 1rem; color: #000; font-size: 1rem; font-weight: 700; cursor: pointer; }
+        .oobe-btn-back { flex: 0 0 3.3rem; background: var(--surface); border: 1px solid var(--border);
+                         border-radius: 16px; color: var(--muted); font-size: 1.1rem; cursor: pointer; }
+        .oobe-btn-next { flex: 1; background: var(--accent); border: none; border-radius: 16px;
+                         padding: 1rem; min-height: 3.3rem; color: var(--accent-ink); font: 700 1.05rem var(--font); cursor: pointer; }
         .oobe-btn-next:active { opacity: .85; }
     </style>
 </head>
-<body>
+<body class="no-nav">
 <div class="oobe-wrap">
 
     <!-- Fortschrittsbalken (6 Schritte) -->
@@ -284,14 +287,14 @@ function nextStep() {
         const min = parseFloat(numInput.min || '-Infinity');
         const max = parseFloat(numInput.max || 'Infinity');
         if (!val || isNaN(num) || num < min || num > max) {
-            numInput.style.borderColor = '#ef4444';
+            numInput.style.borderColor = 'var(--danger)';
             numInput.focus();
             // Fehlermeldung kurz anzeigen
             let err = document.getElementById('oobe-err-' + currentStep);
             if (!err) {
                 err = document.createElement('div');
                 err.id = 'oobe-err-' + currentStep;
-                err.style.cssText = 'color:#ef4444;font-size:.8rem;text-align:center;margin-top:.35rem;';
+                err.style.cssText = 'color:var(--danger);font-size:.8rem;text-align:center;margin-top:.35rem;';
                 numInput.parentNode.insertBefore(err, numInput.nextSibling);
             }
             err.textContent = `Bitte einen gültigen Wert zwischen ${numInput.min} und ${numInput.max} eingeben.`;

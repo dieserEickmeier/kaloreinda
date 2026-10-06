@@ -67,18 +67,34 @@ function currentUser(): ?array {
     ];
 }
 
+// ── Weiterleitungen ──────────────────────────────────────────────────────────
+// Bewusst RELATIVE Location-Header: Der Browser löst sie gegen die aktuelle
+// URL auf, Schema und Host bleiben also garantiert gleich. Absolute URLs mit
+// selbst ermitteltem Schema (HTTPS / X-Forwarded-Proto) führten hinter einem
+// Reverse-Proxy ohne Forwarded-Header auf http:// – das ist für die iOS-PWA
+// ein fremder Origin und blendet die Safari-Navigationsleiste ein.
+
+/** Nur interne Pfade zulassen (inkl. Query), alles andere → $fallback. */
+function safeRedirectPath(?string $path, string $fallback = '/index.php'): string {
+    $path = (string)$path;
+    if ($path === '' || $path[0] !== '/' || str_starts_with($path, '//') || str_contains($path, '\\')
+        || preg_match('/[\x00-\x1f\x7f]/', $path)) {
+        return $fallback;
+    }
+    return $path;
+}
+
+function redirectTo(string $path): never {
+    header('Location: ' . safeRedirectPath($path));
+    exit;
+}
+
 // ── Login erforderlich ────────────────────────────────────────────────────────
 function requireLogin(): array {
     $user = currentUser();
     if (!$user) {
         $target = urlencode($_SERVER['REQUEST_URI'] ?? '/index.php');
-        // Absoluten URL bauen – funktioniert auch hinter HTTPS auf nicht-Standard-Port
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-               || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'
-                ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        header("Location: {$scheme}://{$host}/login.php?next={$target}");
-        exit;
+        redirectTo("/login.php?next={$target}");
     }
     return $user;
 }

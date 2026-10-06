@@ -8,68 +8,41 @@ $userId = $currentUser['id'];
 renderHeader('Gerichte', 'log');
 ?>
 
-<div class="page-header">
-    <div style="display:flex;align-items:center;gap:.6rem;">
-        <a href="/log.php" style="color:var(--muted);text-decoration:none;font-size:1.1rem;">
-            <i class="bi bi-chevron-left"></i>
-        </a>
-        <h1 style="margin:0;"><i class="bi bi-journal-richtext text-accent me-1"></i> Gerichte</h1>
-    </div>
-    <div style="display:flex;gap:.5rem;">
-        <button onclick="openImportModal()"
-                style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;
-                       padding:.4rem .8rem;color:var(--text);font-weight:600;font-size:.88rem;">
-            <i class="bi bi-box-arrow-in-down"></i> Import
-        </button>
-        <button onclick="openGerichtModal()"
-                style="background:var(--accent);border:none;border-radius:10px;
-                       padding:.4rem .9rem;color:#000;font-weight:700;font-size:.88rem;">
-            <i class="bi bi-plus-lg"></i> Neu
-        </button>
-    </div>
-</div>
+<?php renderPageHeader('Gerichte',
+    '<button type="button" onclick="openImportModal()" class="icon-btn" aria-label="Gericht importieren"><i class="bi bi-box-arrow-in-down"></i></button>'
+  . '<button type="button" onclick="openGerichtModal()" class="icon-btn icon-btn--accent" aria-label="Neues Gericht"><i class="bi bi-plus-lg"></i></button>',
+    '', '/log.php'); ?>
 
 <!-- ── Gerichtsliste ─────────────────────────────────────────── -->
-<div id="gerichteList" style="padding:1rem 0 1rem;">
-    <div style="text-align:center;color:var(--muted);padding:2rem 0;" id="gerichteLoading">
+<div id="gerichteList" class="list-tile" style="margin-top:.35rem;">
+    <div class="log-status" id="gerichteLoading">
         <div class="spinner-border spinner-border-sm spinner-accent"></div>
     </div>
 </div>
 
 <!-- ── Modal: Gericht importieren ────────────────────────────── -->
-<div id="importModal" style="display:none;position:fixed;inset:0;z-index:500;
-     background:rgba(0,0,0,.7);padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0);">
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;position:absolute;
-                bottom:0;left:0;right:0;padding:1.5rem 1rem 2rem;max-height:90vh;overflow-y:auto;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+<div id="importModal" class="kt-overlay" style="display:none;">
+    <div class="sheet sheet--abs">
+        <div class="sheet-head">
             <div>
-                <h2 style="font-size:1.05rem;font-weight:700;margin:0;">Gericht importieren</h2>
-                <p style="font-size:.75rem;color:var(--muted);margin:.2rem 0 0;">
+                <h2>Gericht importieren</h2>
+                <p class="sheet-sub">
                     Geteiltes Gericht (JSON) hier einfügen
                 </p>
             </div>
-            <button onclick="closeImportModal()"
-                    style="background:var(--surface2);border:none;border-radius:50%;
-                           width:2rem;height:2rem;color:var(--muted);font-size:1rem;
-                           display:flex;align-items:center;justify-content:center;">
-                <i class="bi bi-x"></i>
+            <button type="button" class="pf-close" onclick="closeImportModal()" aria-label="Schließen"><i class="bi bi-x-lg"></i>
             </button>
         </div>
 
 
         <!-- Syntax-Hilfe: Vorlage für KI-Prompts -->
         <div style="margin-bottom:.75rem;">
-            <button onclick="toggleImportSyntax()" type="button"
-                    style="display:inline-flex;align-items:center;gap:.35rem;
-                           background:transparent;border:none;padding:0;
-                           color:var(--muted);font-size:.75rem;cursor:pointer;">
+            <button onclick="toggleImportSyntax()" type="button" class="btn-link-muted" style="text-decoration:none;padding:.25rem 0;display:inline-flex;align-items:center;gap:.35rem;">
                 <i class="bi bi-info-circle"></i> Syntax-Beispiel &amp; KI-Vorlage
                 <i class="bi bi-chevron-down" id="importSyntaxChevron" style="font-size:.65rem;transition:transform .2s;"></i>
             </button>
             <div id="importSyntaxBox" style="display:none;margin-top:.5rem;">
-                <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;
-                            padding:.6rem .7rem;font-size:.68rem;line-height:1.45;color:var(--text);
-                            overflow-x:auto;margin:0 0 .5rem;white-space:pre;">{
+                <pre class="code-box">{
   "typ": "kt-gericht",
   "version": 1,
   "name": "Spaghetti Bolognese",
@@ -80,13 +53,10 @@ renderHeader('Gerichte', 'log');
      "fett_100g": 1.6, "kh_100g": 72}
   ]
 }</pre>
-                <button onclick="copyImportPrompt()" type="button"
-                        style="width:100%;background:var(--surface2);border:1px solid var(--border);
-                               border-radius:10px;padding:.5rem;color:var(--text);
-                               font-size:.78rem;font-weight:600;cursor:pointer;">
+                <button onclick="copyImportPrompt()" type="button" class="scan-btn secondary" style="margin:0;width:100%;font-size:.88rem;padding:.65rem;min-height:2.75rem;">
                     <i class="bi bi-clipboard"></i> KI-Vorlage kopieren
                 </button>
-                <div style="font-size:.68rem;color:var(--muted);margin-top:.4rem;line-height:1.4;">
+                <div class="tile__sub" style="line-height:1.4;">
                     Kopiert einen fertigen Prompt: an eine KI schicken, Rezept anhängen,
                     das JSON aus der Antwort hier einfügen.
                 </div>
@@ -98,8 +68,7 @@ renderHeader('Gerichte', 'log');
                   style="font-size:.78rem;font-family:ui-monospace,monospace;margin-bottom:.75rem;"></textarea>
 
         <!-- Live-Vorschau -->
-        <div id="importPreview" style="display:none;background:var(--surface2);border-radius:10px;
-             padding:.6rem .8rem;font-size:.82rem;margin-bottom:1rem;line-height:1.4;"></div>
+        <div id="importPreview" class="code-box" style="display:none;font-family:var(--font);font-size:.85rem;white-space:normal;margin-bottom:1rem;"></div>
 
         <button id="btnImport" onclick="importGericht()" class="scan-btn mb-2">
             <i class="bi bi-box-arrow-in-down"></i> Importieren
@@ -111,50 +80,45 @@ renderHeader('Gerichte', 'log');
 </div>
 
 <!-- ── Modal: Gericht anlegen/bearbeiten ─────────────────────── -->
-<div id="gerichtModal" onclick="if(event.target===this)closeGerichtModal()"
-     style="display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.7);
-            align-items:flex-end;justify-content:center;">
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:520px;
-                max-height:92vh;display:flex;flex-direction:column;">
-        <div style="overflow-y:auto;padding:1.5rem 1rem 2rem;flex:1;">
+<div id="gerichtModal" class="kt-overlay" onclick="if(event.target===this)closeGerichtModal()"
+     style="display:none;align-items:flex-end;justify-content:center;">
+    <div class="sheet" style="display:flex;flex-direction:column;padding:0;">
+        <div style="overflow-y:auto;padding:.5rem 1.1rem calc(1.25rem + env(safe-area-inset-bottom,0px));flex:1;">
 
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
-            <h2 style="font-size:1.05rem;font-weight:700;margin:0;" id="gerichtModalTitle">Neues Gericht</h2>
-            <button onclick="closeGerichtModal()"
-                    style="background:var(--surface2);border:none;border-radius:50%;width:2rem;height:2rem;
-                           color:var(--muted);font-size:1rem;display:flex;align-items:center;justify-content:center;">
-                <i class="bi bi-x"></i>
+        <div class="sheet-head">
+            <h2 id="gerichtModalTitle">Neues Gericht</h2>
+            <button type="button" class="pf-close" onclick="closeGerichtModal()" aria-label="Schließen"><i class="bi bi-x-lg"></i>
             </button>
         </div>
 
         <div class="mb-3">
-            <label class="form-label" style="color:var(--muted);font-size:.82rem;">Name des Gerichts</label>
+            <label class="form-label">Name des Gerichts</label>
             <input type="text" id="gName" class="form-control" placeholder="z.B. Haferflocken-Bowl"
-                   style="background:var(--surface);border-color:var(--border);color:var(--text);border-radius:12px;">
+                  >
         </div>
         <div class="mb-4" style="display:flex;align-items:center;gap:.75rem;">
             <div style="flex:1;">
-                <label class="form-label" style="color:var(--muted);font-size:.82rem;">Ergibt Portionen</label>
+                <label class="form-label">Ergibt Portionen</label>
                 <input type="number" id="gPortionen" class="form-control" value="1" min="0.5" step="0.5"
-                       style="background:var(--surface);border-color:var(--border);color:var(--text);border-radius:12px;">
+                      >
             </div>
             <div style="flex:1;text-align:center;margin-top:1.4rem;">
-                <div style="font-size:.75rem;color:var(--muted);">Gesamt</div>
-                <div style="font-weight:800;font-size:1.1rem;color:var(--accent);" id="gKcalTotal">0 kcal</div>
-                <div style="font-size:.72rem;color:var(--muted);" id="gKcalPortion">0 kcal / Portion</div>
+                <div class="tile__sub" style="margin:0;">Gesamt</div>
+                <div style="font-weight:700;font-size:1.3rem;color:var(--accent);" class="num" id="gKcalTotal">0 kcal</div>
+                <div class="tile__sub" style="margin:0;" id="gKcalPortion">0 kcal / Portion</div>
             </div>
         </div>
 
         <!-- Zutatenliste -->
-        <div style="font-size:.82rem;font-weight:600;color:var(--muted);margin-bottom:.5rem;">Zutaten</div>
-        <div id="zutatenList" style="margin-bottom:.75rem;"></div>
+        <div class="form-label">Zutaten</div>
+        <div id="zutatenList" class="zutaten-list"></div>
 
         <!-- Zutat hinzufügen -->
-        <div class="kt-card" style="margin:0 0 1rem;">
-            <button type="button" onclick="goScanZutat()" class="scan-btn" style="margin:0;width:100%;">
-                <i class="bi bi-search"></i> Zutat hinzufügen
+        <div style="margin:0 0 1rem;">
+            <button type="button" onclick="goScanZutat()" class="scan-btn secondary" style="margin:0;width:100%;">
+                <i class="bi bi-plus-lg"></i> Zutat hinzufügen
             </button>
-            <div style="font-size:.68rem;color:var(--muted);text-align:center;margin-top:.5rem;">
+            <div class="tile__sub text-center" style="margin-top:.45rem;">
                 Suche, Barcode-Scan, Foto oder manuelle Eingabe – alles an einem Ort
             </div>
         </div>
@@ -170,10 +134,9 @@ renderHeader('Gerichte', 'log');
 <div id="gerichtEintragenModal" class="product-found">
   <div class="pf-card">
     <div class="pf-head">
-        <div class="pf-head__icon"><i class="bi bi-journal-richtext"></i></div>
         <div class="pf-head__text">
-            <div id="gerichtEintragenName">–</div>
-            <div id="gerichtEintragenInfo">–</div>
+            <div id="gerichtEintragenInfo" class="pf-src">–</div>
+            <div id="gerichtEintragenName" class="pf-name">–</div>
         </div>
         <button class="pf-close" id="btnGerichtVerwerfen" aria-label="Schließen">
             <i class="bi bi-x-lg"></i>
@@ -191,11 +154,11 @@ renderHeader('Gerichte', 'log');
             <span class="pf-macro__lab">kcal/Port.</span>
         </div>
         <div class="pf-macro">
-            <div class="pf-macro__ring" style="--c:#60a5fa;"><span id="geKcalGesamt">–</span></div>
+            <div class="pf-macro__ring" style="--c:var(--prot);"><span id="geKcalGesamt">–</span></div>
             <span class="pf-macro__lab">kcal ges.</span>
         </div>
         <div class="pf-macro">
-            <div class="pf-macro__ring" style="--c:#a78bfa;"><span id="gePortionen">–</span></div>
+            <div class="pf-macro__ring" style="--c:var(--carb);"><span id="gePortionen">–</span></div>
             <span class="pf-macro__lab">Portionen</span>
         </div>
     </div>
@@ -216,13 +179,14 @@ renderHeader('Gerichte', 'log');
             <i class="bi bi-dash-lg"></i>
         </button>
         <div class="pf-menge__field">
-            <input type="number" inputmode="decimal" id="gerichtEintragenPortionen" value="1" min="0.5" step="0.5">
+            <input type="number" inputmode="decimal" id="gerichtEintragenPortionen" value="1" min="0.5" step="0.5" aria-label="Menge">
             <span id="gerichtEintragenEinheit">Portion(en)</span>
         </div>
         <button type="button" class="pf-stepper" id="btnGePlus" aria-label="Mehr">
             <i class="bi bi-plus-lg"></i>
         </button>
     </div>
+    <div class="ruler" data-ruler-for="gerichtEintragenPortionen"></div>
     <div class="pf-chips" id="geQuickChipsPortion">
         <button type="button" class="pf-chip" data-val="0.5">½</button>
         <button type="button" class="pf-chip active" data-val="1">1</button>
@@ -239,8 +203,9 @@ renderHeader('Gerichte', 'log');
     </div>
 
     <div class="pf-actions">
-        <button class="scan-btn" id="btnGerichtEintragen">
-            <i class="bi bi-plus-circle-fill"></i> Eintragen
+        <button class="scan-btn btn-split" id="btnGerichtEintragen">
+            <span>Hinzufügen</span>
+            <span><span id="geBtnKcal" class="num">0</span> kcal <i class="bi bi-arrow-right"></i></span>
         </button>
     </div>
   </div>
@@ -275,8 +240,9 @@ async function loadGerichte() {
     if (loadingEl) loadingEl.style.display = 'none';
 
     if (!d.ok || !d.gerichte.length) {
-        el.innerHTML = `<div style="text-align:center;color:var(--muted);padding:2rem 0;">
-            <i class="bi bi-journal-x" style="font-size:2.5rem;display:block;margin-bottom:.5rem;"></i>
+        el.classList.remove('list-tile');
+        el.innerHTML = `<div class="empty-state">
+            <i class="bi bi-journal-x"></i>
             Noch keine Gerichte angelegt.<br>
             <small>Tippe oben auf „+ Neu" um dein erstes Gericht zu erstellen.</small>
         </div>`;
@@ -287,47 +253,37 @@ async function loadGerichte() {
         const kcalPortion = g.portionen > 0 ? Math.round(g.kcal_gesamt / g.portionen) : 0;
         return `
         <div class="swipe-entry four-actions" id="gericht-${g.id}">
-            <div class="swipe-entry__content" style="padding:.7rem 1.25rem;cursor:pointer;"
+            <div class="swipe-entry__content" style="cursor:pointer;min-height:3.6rem;"
                  data-gericht-id="${g.id}" data-gericht-name="${escHtml(g.name)}"
                  data-portionen="${g.portionen}" data-kcal-gesamt="${g.kcal_gesamt || 0}"
                  data-gewicht-gesamt="${g.gewicht_gesamt || 0}">
-                <div style="flex:1;overflow:hidden;">
-                    <div style="font-weight:700;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                        ${escHtml(g.name)}
-                    </div>
-                    <div style="font-size:.75rem;color:var(--muted);margin-top:.15rem;">
-                        ${g.zutat_anzahl} Zutaten · ${Math.round(g.kcal_gesamt)} kcal gesamt · ${kcalPortion} kcal/Portion
-                    </div>
+                <span class="tl-dot src-dish"></span>
+                <div class="tl-text">
+                    <span class="tl-name">${escHtml(g.name)}</span>
+                    <span class="tl-meta">${g.zutat_anzahl} Zutaten · ${Math.round(g.kcal_gesamt)} kcal gesamt</span>
                 </div>
-                <i class="bi bi-plus-circle" style="color:var(--accent);font-size:1.2rem;flex-shrink:0;"></i>
+                <span class="tl-kcal num">${kcalPortion}<small> /P</small></span>
+                <span class="icon-btn sm icon-btn--accent" aria-hidden="true"><i class="bi bi-plus-lg"></i></span>
             </div>
             <div class="swipe-entry__actions">
                 <button class="swipe-action-share"
-                        data-gericht-id="${g.id}"
-                        style="width:4.5rem;background:#60a5fa;border:none;color:#000;
-                               display:flex;flex-direction:column;align-items:center;
-                               justify-content:center;gap:.15rem;font-size:.68rem;">
+                        data-gericht-id="${g.id}">
                     <i class="bi bi-share-fill"></i>
                     <span>Teilen</span>
                 </button>
                 <button class="swipe-action-duplicate"
-                        data-gericht-id="${g.id}"
-                        style="width:4.5rem;background:#a78bfa;border:none;color:#000;
-                               display:flex;flex-direction:column;align-items:center;
-                               justify-content:center;gap:.15rem;font-size:.68rem;">
+                        data-gericht-id="${g.id}">
                     <i class="bi bi-copy"></i>
                     <span>Duplizieren</span>
                 </button>
                 <button class="swipe-action-edit"
-                        data-gericht-id="${g.id}"
-                        style="width:5rem;">
+                        data-gericht-id="${g.id}">
                     <i class="bi bi-pencil"></i>
                     <span>Bearbeiten</span>
                 </button>
                 <button class="swipe-action-delete"
                         data-gericht-id="${g.id}"
-                        data-gericht-name="${escHtml(g.name)}"
-                        style="width:5rem;">
+                        data-gericht-name="${escHtml(g.name)}">
                     <i class="bi bi-trash3"></i>
                     <span>Löschen</span>
                 </button>
@@ -376,23 +332,19 @@ async function editGericht(id) {
 function renderZutaten() {
     const el = document.getElementById('zutatenList');
     if (!zutaten.length) {
-        el.innerHTML = '<div style="color:var(--muted);font-size:.82rem;text-align:center;padding:.5rem;">Noch keine Zutaten</div>';
+        el.innerHTML = '<div class="tile__sub text-center" style="padding:.6rem;">Noch keine Zutaten</div>';
         updateGerichtKcal(); return;
     }
     el.innerHTML = zutaten.map((z, i) => `
-        <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem 0;
-                    border-bottom:1px solid var(--border);">
-            <div style="flex:1;overflow:hidden;">
-                <div style="font-size:.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(z.name)}</div>
-                <div style="font-size:.72rem;color:var(--muted);">${z.menge_g}g · ${Math.round(z.kcal_100g * z.menge_g / 100)} kcal</div>
+        <div class="zutat-row">
+            <div class="tl-text">
+                <span class="tl-name">${escHtml(z.name)}</span>
+                <span class="tl-meta">${Math.round(z.kcal_100g * z.menge_g / 100)} kcal</span>
             </div>
-            <input type="number" value="${z.menge_g}" min="1" step="1"
-                   onchange="updateZutatMenge(${i}, this.value)"
-                   style="width:4.5rem;background:var(--surface2);border:1px solid var(--border);
-                          border-radius:8px;padding:.3rem .4rem;color:var(--text);font-size:.82rem;text-align:center;">
-            <span style="color:var(--muted);font-size:.75rem;">g</span>
-            <button onclick="removeZutat(${i})"
-                    style="background:none;border:none;color:#f87171;font-size:.9rem;padding:.2rem .4rem;">
+            <input type="number" value="${z.menge_g}" min="1" step="1" class="kt-input" aria-label="Menge in g"
+                   onchange="updateZutatMenge(${i}, this.value)">
+            <span class="tl-meta">g</span>
+            <button type="button" onclick="removeZutat(${i})" class="entry-delete" aria-label="Zutat entfernen">
                 <i class="bi bi-x-circle"></i>
             </button>
         </div>`).join('');
@@ -567,6 +519,7 @@ function updateGerichtPreview() {
         kcal = kcalPro * val;
     }
     document.getElementById('geKcalPreview').textContent = Math.round(kcal);
+    document.getElementById('geBtnKcal').textContent     = Math.round(kcal);
 }
 
 document.getElementById('gerichtEintragenPortionen').addEventListener('input', () => {

@@ -24,13 +24,11 @@ if (!$apiKey) {
 renderHeader('API-Dokumentation', 'profil');
 ?>
 
-<div class="page-header">
-    <h1><i class="bi bi-code-slash text-accent me-1"></i> API-Dokumentation</h1>
-</div>
+<?php renderPageHeader('API', '', 'Dokumentation', '/einstellungen.php'); ?>
 
-<div style="padding:0 1rem 2rem;">
+<div class="api-docs" style="padding:0 0 2rem;">
 
-<p style="color:var(--muted);font-size:.88rem;margin-bottom:1.25rem;">
+<p style="color:var(--muted);font-size:.9rem;margin:0 1.2rem 1.25rem;">
     Beide Endpunkte akzeptieren Anfragen von externen Apps (z.B. Apple Health Shortcuts,
     Home Assistant, Scriptable). Authentifizierung per API-Key.
 </p>
@@ -61,7 +59,7 @@ renderHeader('API-Dokumentation', 'profil');
 </div>
 
 <!-- ── Gewicht API ───────────────────────────────────────────── -->
-<div style="font-size:1rem;font-weight:700;margin:1.5rem 0 .75rem;
+<div style="font-size:1.05rem;font-weight:700;margin:1.5rem 1.2rem .75rem;
             display:flex;align-items:center;gap:.5rem;">
     <i class="bi bi-graph-up text-accent"></i> Gewicht
     <code style="font-size:.75rem;background:var(--surface2);padding:.15rem .5rem;
@@ -102,8 +100,8 @@ $endpoints = [
 foreach ($endpoints as $ep): ?>
 <div class="kt-card" style="margin-bottom:.75rem;">
     <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;">
-        <span style="background:<?= $ep['method']==='GET' ? '#3b82f6' : ($ep['method']==='POST' ? '#22c55e' : '#ef4444') ?>;
-                     color:#fff;font-size:.7rem;font-weight:700;padding:.15rem .45rem;
+        <span style="background:<?= $ep['method']==='GET' ? 'var(--prot)' : ($ep['method']==='POST' ? 'var(--accent)' : 'var(--danger)') ?>;
+                     color:<?= $ep['method']==='POST' ? 'var(--accent-ink)' : '#06121a' ?>;font-size:.72rem;font-weight:700;padding:.15rem .45rem;
                      border-radius:5px;"><?= $ep['method'] ?></span>
         <code style="font-size:.8rem;color:var(--text);">/api/<?= $ep['path'] ?></code>
     </div>
@@ -131,7 +129,7 @@ foreach ($endpoints as $ep): ?>
 <?php endforeach; ?>
 
 <!-- ── Aktivitäten API ───────────────────────────────────────── -->
-<div style="font-size:1rem;font-weight:700;margin:1.5rem 0 .75rem;
+<div style="font-size:1.05rem;font-weight:700;margin:1.5rem 1.2rem .75rem;
             display:flex;align-items:center;gap:.5rem;">
     <i class="bi bi-fire text-accent"></i> Aktivitätskalorien
     <code style="font-size:.75rem;background:var(--surface2);padding:.15rem .5rem;
@@ -172,8 +170,8 @@ $actEndpoints = [
 foreach ($actEndpoints as $ep): ?>
 <div class="kt-card" style="margin-bottom:.75rem;">
     <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;">
-        <span style="background:<?= $ep['method']==='GET' ? '#3b82f6' : ($ep['method']==='POST' ? '#22c55e' : '#ef4444') ?>;
-                     color:#fff;font-size:.7rem;font-weight:700;padding:.15rem .45rem;
+        <span style="background:<?= $ep['method']==='GET' ? 'var(--prot)' : ($ep['method']==='POST' ? 'var(--accent)' : 'var(--danger)') ?>;
+                     color:<?= $ep['method']==='POST' ? 'var(--accent-ink)' : '#06121a' ?>;font-size:.72rem;font-weight:700;padding:.15rem .45rem;
                      border-radius:5px;"><?= $ep['method'] ?></span>
         <code style="font-size:.8rem;color:var(--text);">/api/<?= $ep['path'] ?></code>
     </div>
@@ -201,7 +199,7 @@ foreach ($actEndpoints as $ep): ?>
 <?php endforeach; ?>
 
 <!-- ── Apple Shortcuts Beispiel ─────────────────────────────── -->
-<div style="font-size:1rem;font-weight:700;margin:1.5rem 0 .75rem;
+<div style="font-size:1.05rem;font-weight:700;margin:1.5rem 1.2rem .75rem;
             display:flex;align-items:center;gap:.5rem;">
     <i class="bi bi-apple text-accent"></i> Apple Shortcuts Beispiel
 </div>
