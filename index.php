@@ -100,8 +100,16 @@ $wocheTage  = ladeTageswerte($db, $userId, $profil, $wocheVon, date('Y-m-d', str
 
 // ─── Gewicht: Trend (über die gesamte Historie) der letzten 30 Tage ──────────
 $von30    = date('Y-m-d', strtotime('-30 day'));
-$gewTrend = array_column(array_values(array_filter(gewichtsTrend($db, $userId),
-                fn($g) => $g['datum'] >= $von30)), 'trend');
+$gew30    = array_values(array_filter(gewichtsTrend($db, $userId), fn($g) => $g['datum'] >= $von30));
+$gewTrend = array_column($gew30, 'trend');
+// y-Bereich wie im Profil-Chart (gewogene Werte + Rand), damit die Kurve
+// dieselbe Form hat und kleine Trendschwankungen nicht überzeichnet werden
+if ($gew30) {
+    $kgMin  = min(array_column($gew30, 'kg'));
+    $kgMax  = max(array_column($gew30, 'kg'));
+    $kgPad  = max(0.5, ($kgMax - $kgMin) * 0.2);
+    $kgMin -= $kgPad; $kgMax += $kgPad;
+}
 
 // ─── Aktivitäten heute ───────────────────────────────────────────────────────
 $stmt = $db->prepare("SELECT bezeichnung FROM aktivitaet_log WHERE user_id = ? AND datum = ? ORDER BY erstellt_am");
@@ -236,7 +244,7 @@ function uhrzeit(string $ts): string { return date('H:i', strtotime($ts)); }
         </div>
         <?php if (count($gewTrend) > 1): ?>
         <svg width="120" height="40" viewBox="0 0 120 40" aria-hidden="true" style="flex-shrink:0;">
-            <polyline points="<?= sparklinePoints($gewTrend, 120, 40) ?>" fill="none" style="stroke:var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <polyline points="<?= sparklinePoints($gewTrend, 120, 40, 3, $kgMin, $kgMax) ?>" fill="none" style="stroke:var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         <?php endif; ?>
     </a>

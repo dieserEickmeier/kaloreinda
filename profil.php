@@ -203,14 +203,15 @@ function setPeriod(period) {
         `Verlauf (${data.length} Einträge)`;
 
     // Statistik inkl. Trend
-    const first = data[0].kg, last = data[data.length-1].kg;
+    // Start/Veränderung auf Basis des Trends – wie die Kachel auf „Heute“
+    const first = trendData[0], last = trendData[trendData.length-1];
     const diff  = last - first;
     const diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
     const diffColor = diff < 0 ? 'var(--accent)' : diff > 0 ? 'var(--danger)' : 'var(--muted)';
     const currentTrend = trendData[trendData.length - 1];
     const de = v => v.replace('.', ',');
     document.getElementById('chartStats').innerHTML = `
-        <div><b>${de(first.toFixed(1))}</b><small>Start</small></div>
+        <div><b>${de(first.toFixed(1))}</b><small>Trend Start</small></div>
         <div><b style="color:${diffColor};">${de(diffStr)}</b><small>Veränderung</small></div>
         <div><b>${de(currentTrend.toFixed(1))}</b><small>Trend aktuell</small></div>
         <div><b style="color:${trendColor};">${trendIcon} ${de(trendStr)}</b><small>kg / Woche</small></div>

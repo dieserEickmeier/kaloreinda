@@ -79,10 +79,14 @@ function gewichtsTrend(mysqli $db, int $userId): array {
 }
 
 /** SVG-Polyline-Punkte für eine Sparkline in einer Box von $w × $h. */
-function sparklinePoints(array $werte, int $w, int $h, int $pad = 3): string {
+/**
+ * $min/$max optional: fester Wertebereich der y-Achse (z.B. wie im
+ * Gewichtschart des Profils), sonst wird auf min..max der Werte gestreckt.
+ */
+function sparklinePoints(array $werte, int $w, int $h, int $pad = 3, ?float $min = null, ?float $max = null): string {
     $n = count($werte);
     if ($n < 2) return '';
-    $min = min($werte); $max = max($werte);
+    $min ??= min($werte); $max ??= max($werte);
     $span = ($max - $min) ?: 1;
     $pts = [];
     foreach (array_values($werte) as $i => $v) {
