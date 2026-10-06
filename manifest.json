@@ -2,7 +2,7 @@
   "name": "KalorienTracker",
   "short_name": "Kalorien",
   "description": "Kalorien & Makros tracken – Barcode-Scanner & KI",
-  "id": "/",
+  "id": "/index.php",
   "start_url": "/start.php",
   "scope": "/",
   "display": "standalone",
