@@ -29,10 +29,9 @@ foreach (array_reverse($tageAll) as $t) {
 }
 
 // Gewichtsmessungen (echte Messpunkte, nicht fortgeschrieben) für den Trend-Chart
-$stmtG = $db->prepare("SELECT datum, kg FROM gewicht WHERE user_id = ? AND datum >= DATE_SUB(CURDATE(), INTERVAL 365 DAY) ORDER BY datum, id");
-$stmtG->bind_param('i', $userId); $stmtG->execute();
-$gewichte = array_map(fn($r) => ['d' => $r['datum'], 'kg' => (float)$r['kg']],
-                      $stmtG->get_result()->fetch_all(MYSQLI_ASSOC));
+$von365   = date('Y-m-d', strtotime('-365 day'));
+$gewichte = array_values(array_map(fn($g) => ['d' => $g['datum'], 'kg' => $g['kg'], 't' => $g['trend']],
+    array_filter(gewichtsTrend($db, $userId), fn($g) => $g['datum'] >= $von365)));
 
 // Letzte 7 Tage (neueste zuerst) für die Tageskarten
 $tage7 = array_reverse(array_slice($tageAll, -7, 7, true), true);
@@ -290,14 +289,6 @@ function hexA(hex, a) {
     return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
 }
 
-// EWMA wie im Gewichtschart auf der Profilseite
-function ewma(w) {
-    const a = Math.max(0.1, Math.min(0.4, 2 / (w.length + 1)));
-    const r = [w[0]];
-    for (let i = 1; i < w.length; i++) r.push(a * w[i] + (1 - a) * r[i - 1]);
-    return r;
-}
-
 const baseOpts = {
     responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
     interaction: { mode: 'index', intersect: false },
@@ -350,7 +341,7 @@ function render(range) {
         dEl.textContent = 'zu wenig Messungen';
         return;
     }
-    const trend = ewma(gw.map(g => g.kg));
+    const trend = gw.map(g => g.t);   // Trend über die gesamte Historie (PHP)
     const delta = trend[trend.length - 1] - trend[0];
     dEl.textContent = (delta > 0 ? '+' : '−') + Math.abs(delta).toFixed(1).replace('.', ',') + ' kg';
     dEl.style.color = delta <= 0 ? C.accent : C.muted;

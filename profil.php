@@ -138,34 +138,25 @@ if ($kg && !empty($profil['groesse_cm'])) {
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-// Alle Daten (älteste zuerst)
-const allData = <?= json_encode(array_reverse(array_map(
-    fn($r) => ['datum' => $r['datum'], 'kg' => (float)$r['kg']],
-    $gewichtHistory
-))) ?>;
+// Alle Messungen (älteste zuerst) inkl. Trend – der Trend läuft über die
+// gesamte Historie (gewichtsTrend() in includes/ui.php), damit „Trend aktuell“
+// unabhängig vom gewählten Zeitraum ist und zur Kachel auf „Heute“ passt.
+const allData = <?= json_encode(gewichtsTrend($db, $userId)) ?>;
 
 let chart = null;
 let activePeriod = '1M';
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const C   = { accent: css('--accent'), danger: css('--danger'), muted: css('--muted'), faint: css('--faint'), border: css('--border'), text: css('--text') };
 
+// Zeitraum in Tagen (1M = 30 Tage wie auf „Heute“). Vergleich als
+// YYYY-MM-DD-Text – new Date('YYYY-MM-DD') wäre UTC-Mitternacht und hat in
+// der Ortszeit den ersten Tag des Zeitraums verschluckt.
 function filterByPeriod(period) {
     if (period === 'all') return allData;
-    const months = period === '1M' ? 1 : period === '3M' ? 3 : 6;
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - months);
-    return allData.filter(d => new Date(d.datum) >= cutoff);
-}
-
-// Exponentiell gewichteter gleitender Durchschnitt (EWMA)
-// alpha: Glättungsfaktor 0–1. Höher = reaktiver auf neue Werte.
-// Wir wählen alpha dynamisch: bei wenigen Punkten stärker glätten.
-function ewma(weights, alpha) {
-    const result = [weights[0]];
-    for (let i = 1; i < weights.length; i++) {
-        result.push(alpha * weights[i] + (1 - alpha) * result[i - 1]);
-    }
-    return result.map(v => parseFloat(v.toFixed(2)));
+    const days = { '1M': 30, '3M': 90, '6M': 180 }[period];
+    const c = new Date(); c.setDate(c.getDate() - days);
+    const cutoff = c.getFullYear() + '-' + String(c.getMonth() + 1).padStart(2, '0') + '-' + String(c.getDate()).padStart(2, '0');
+    return allData.filter(d => d.datum >= cutoff);
 }
 
 function setPeriod(period) {
@@ -194,10 +185,8 @@ function setPeriod(period) {
     const minW = Math.min(...weights), maxW = Math.max(...weights);
     const yPad = Math.max(0.5, (maxW - minW) * 0.2);
 
-    // EWMA Trendlinie
-    // alpha dynamisch: mehr Datenpunkte → stärkere Glättung (kleineres alpha)
-    const alpha    = Math.max(0.1, Math.min(0.4, 2 / (weights.length + 1)));
-    const trendData = ewma(weights, alpha);
+    // EWMA-Trend kommt fertig aus PHP (über die gesamte Historie berechnet)
+    const trendData = data.map(d => d.trend);
 
     // Trend pro Woche: Steigung des EWMA über den Zeitraum
     const daySpan = (new Date(data[data.length-1].datum) - new Date(data[0].datum))

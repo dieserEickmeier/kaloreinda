@@ -98,12 +98,10 @@ $zeigeMakros = (int)($profil['makros_anzeigen'] ?? 1);
 $wocheVon   = date('Y-m-d', strtotime('-6 day'));
 $wocheTage  = ladeTageswerte($db, $userId, $profil, $wocheVon, date('Y-m-d', strtotime('-1 day')));
 
-// ─── Gewicht: letzte 30 Tage für Trend-Kachel ────────────────────────────────
-$stmt = $db->prepare("SELECT kg FROM gewicht WHERE user_id = ? AND datum >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) ORDER BY datum, id");
-$stmt->bind_param('i', $userId);
-$stmt->execute();
-$gewichte30 = array_map(fn($r) => (float)$r['kg'], $stmt->get_result()->fetch_all(MYSQLI_ASSOC));
-$gewTrend   = ewma($gewichte30);
+// ─── Gewicht: Trend (über die gesamte Historie) der letzten 30 Tage ──────────
+$von30    = date('Y-m-d', strtotime('-30 day'));
+$gewTrend = array_column(array_values(array_filter(gewichtsTrend($db, $userId),
+                fn($g) => $g['datum'] >= $von30)), 'trend');
 
 // ─── Aktivitäten heute ───────────────────────────────────────────────────────
 $stmt = $db->prepare("SELECT bezeichnung FROM aktivitaet_log WHERE user_id = ? AND datum = ? ORDER BY erstellt_am");

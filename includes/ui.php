@@ -57,6 +57,27 @@ function ewma(array $werte, ?float $alpha = null): array {
     return $out;
 }
 
+/**
+ * Alle Gewichtsmessungen mit Trendwert, älteste zuerst.
+ *
+ * Der Trend (EWMA) läuft immer über die GESAMTE Historie; Ansichten wie
+ * „30 Tage“ schneiden daraus nur ihren Ausschnitt aus. Würde man ihn je
+ * Zeitfenster neu berechnen, hinge der „aktuelle Trend“ vom gewählten
+ * Fenster ab (Startwert = erste Wiegung im Fenster, alpha je nach Anzahl)
+ * und Heute, Profil und Verlauf zeigten unterschiedliche Werte.
+ *
+ * @return array<int,array{datum:string,kg:float,trend:float}>
+ */
+function gewichtsTrend(mysqli $db, int $userId): array {
+    $st = $db->prepare("SELECT datum, kg FROM gewicht WHERE user_id = ? ORDER BY datum, id");
+    $st->bind_param('i', $userId);
+    $st->execute();
+    $rows  = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+    $trend = ewma(array_map(fn($r) => (float)$r['kg'], $rows));
+    return array_map(fn($r, $t) => ['datum' => $r['datum'], 'kg' => (float)$r['kg'], 'trend' => round($t, 2)],
+                     $rows, $trend);
+}
+
 /** SVG-Polyline-Punkte für eine Sparkline in einer Box von $w × $h. */
 function sparklinePoints(array $werte, int $w, int $h, int $pad = 3): string {
     $n = count($werte);
