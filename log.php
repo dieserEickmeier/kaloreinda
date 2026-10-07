@@ -1525,10 +1525,15 @@ window.addEventListener('pagehide', ocrStop);
 window.onScanProduct = (product) => showProduct(product);
 
 // Übergabe aus dem Scanner einer anderen Seite (/log.php?barcode=…) bzw.
-// Einstieg mit Fokus auf die Suche (/log.php?focus=search)
+// Einstiege der Quick Actions: Suche (?focus=search), schneller Eintrag
+// (?aktion=schnell). Parameter danach entfernen (Neuladen = normale Seite).
 (async () => {
     const qs = new URLSearchParams(location.search);
     if (qs.get('focus') === 'search') document.getElementById('searchInput')?.focus();
+    if (qs.get('aktion') === 'schnell') openSchnellModal();
+    if ((qs.has('focus') || qs.has('aktion')) && !qs.has('barcode')) {
+        history.replaceState(null, '', location.pathname + (qs.get('pick') ? '?pick=1' : ''));
+    }
     const code = qs.get('barcode');
     if (!code) return;
     history.replaceState(null, '', location.pathname + (qs.get('pick') ? '?pick=1' : ''));

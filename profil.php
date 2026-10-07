@@ -595,6 +595,15 @@ async function deleteAktiv(id, item) {
 function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// Quick Action „Gewicht eintragen“ (Manifest-Shortcut → /profil.php?focus=gewicht)
+if (new URLSearchParams(location.search).get('focus') === 'gewicht') {
+    const inp = document.getElementById('gewichtInput');
+    inp.scrollIntoView({ block: 'center' });
+    inp.focus();
+    inp.select();
+    history.replaceState(null, '', location.pathname);
+}
 </script>
 
 <?php renderFooter('profil'); ?>

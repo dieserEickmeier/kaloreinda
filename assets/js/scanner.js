@@ -229,3 +229,15 @@ window.addEventListener('beforeunload', zxingStop);
 
 // Scan-Button der Navigation
 document.getElementById('navScanBtn')?.addEventListener('click', zxingStart);
+
+// Quick Action „Scannen“ (Manifest-Shortcut → /log.php?scan=1): Kamera
+// direkt starten. Den Parameter danach entfernen, damit ein Neuladen nicht
+// erneut scannt. Verweigert der Browser die Kamera ohne Antippen, zeigt das
+// Scanner-Overlay den Fehler mit „Scanner schließen“.
+(function () {
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('scan') !== '1') return;
+  qs.delete('scan');
+  history.replaceState(null, '', location.pathname + (qs.toString() ? '?' + qs : '') + location.hash);
+  zxingStart();
+})();

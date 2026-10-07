@@ -35,5 +35,79 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Barcode scannen",
+      "short_name": "Scannen",
+      "description": "Kamera öffnen und Produkt scannen",
+      "url": "/log.php?scan=1",
+      "icons": [
+        {
+          "src": "/assets/icons/shortcut-scan-96.png?v=1791358400",
+          "sizes": "96x96",
+          "type": "image/png"
+        },
+        {
+          "src": "/assets/icons/shortcut-scan-192.png?v=1791358400",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Lebensmittel suchen",
+      "short_name": "Suchen",
+      "description": "Erfassen mit aktivem Suchfeld",
+      "url": "/log.php?focus=search",
+      "icons": [
+        {
+          "src": "/assets/icons/shortcut-search-96.png?v=1791358400",
+          "sizes": "96x96",
+          "type": "image/png"
+        },
+        {
+          "src": "/assets/icons/shortcut-search-192.png?v=1791358400",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Schneller Eintrag",
+      "short_name": "Schnell",
+      "description": "Kalorien ohne Produkt eintragen",
+      "url": "/log.php?aktion=schnell",
+      "icons": [
+        {
+          "src": "/assets/icons/shortcut-schnell-96.png?v=1791358400",
+          "sizes": "96x96",
+          "type": "image/png"
+        },
+        {
+          "src": "/assets/icons/shortcut-schnell-192.png?v=1791358400",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Gewicht eintragen",
+      "short_name": "Gewicht",
+      "description": "Heutiges Gewicht erfassen",
+      "url": "/profil.php?focus=gewicht",
+      "icons": [
+        {
+          "src": "/assets/icons/shortcut-gewicht-96.png?v=1791358400",
+          "sizes": "96x96",
+          "type": "image/png"
+        },
+        {
+          "src": "/assets/icons/shortcut-gewicht-192.png?v=1791358400",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }
