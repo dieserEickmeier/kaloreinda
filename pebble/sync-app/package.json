@@ -1,5 +1,5 @@
 {
-  "name": "kalorien-schritte",
+  "name": "kalorien-sync",
   "author": "KalorienTracker",
   "version": "1.0.0",
   "keywords": [
@@ -8,8 +8,8 @@
   "private": true,
   "dependencies": {},
   "pebble": {
-    "displayName": "Kalorien Schritte",
-    "uuid": "17a28acf-1cc9-4fb3-9bda-00384245446c",
+    "displayName": "Kalorien Sync",
+    "uuid": "90a6a020-51d7-4e99-bb71-ca809b12da7f",
     "sdkVersion": "3",
     "enableMultiJS": true,
     "targetPlatforms": [
@@ -21,7 +21,7 @@
       "gabbro"
     ],
     "watchapp": {
-      "watchface": true
+      "watchface": false
     },
     "capabilities": [
       "configurable",
@@ -38,26 +38,10 @@
     "resources": {
       "media": [
         {
-          "type": "font",
-          "name": "FONT_TIME_56",
-          "file": "fonts/SpaceGrotesk-Bold.ttf",
-          "characterRegex": "[0-9:]",
-          "targetPlatforms": [
-            "emery",
-            "gabbro"
-          ]
-        },
-        {
-          "type": "font",
-          "name": "FONT_TIME_44",
-          "file": "fonts/SpaceGrotesk-Bold.ttf",
-          "characterRegex": "[0-9:]",
-          "targetPlatforms": [
-            "basalt",
-            "diorite",
-            "flint",
-            "chalk"
-          ]
+          "type": "bitmap",
+          "name": "IMAGE_MENU_ICON",
+          "file": "images/menu_icon.png",
+          "menuIcon": true
         },
         {
           "type": "font",

@@ -1,13 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Kalorien Schritte – Handy-Teil (PebbleKit JS)
+// Kalorien Schritte – Handy-Teil (PebbleKit JS), gemeinsam für das
+// Ziffernblatt (watchface/) und die Quick-Launch-App (sync-app/).
 //
-// Empfängt {STEPS, DATE} vom Ziffernblatt und schickt sie an die API:
+// Empfängt {STEPS, DATE} von der Uhr und schickt sie an die API:
 //   POST <API-Adresse>  {"schritte": STEPS, "datum": DATE, "api_key": …}
 // Antwort an die Uhr: RESULT_KCAL (Erfolg) oder RESULT_ERR + RESULT_RETRY
 // (1 = Netzfehler, Uhr versucht es in 5 Minuten erneut).
 //
 // API-Adresse und Key bleiben auf dem Handy (localStorage) – sie werden
-// nicht an die Uhr übertragen.
+// nicht an die Uhr übertragen. Jede Pebble-App hat ihren eigenen Speicher,
+// der Key wird also je App einmal eingetragen.
 // ─────────────────────────────────────────────────────────────────────────────
 var STORE_KEY = 'kalorien-schritte-settings';
 var DEFAULT_URL = 'https://k.eick-hoff.de/api/activity.php';
@@ -101,8 +103,9 @@ function configPage(s) {
     'font-size:17px;font-weight:700;padding:15px}' +
     '</style></head><body>' +
     '<h1>Kalorien <span>Schritte</span></h1>' +
-    '<p>Schickt deine Tagesschritte stündlich und um 23:55 an die KalorienTracker-API. ' +
-    'Die API rechnet daraus Aktivitätskalorien und ersetzt den Schritte-Eintrag des Tages.</p>' +
+    '<p>Schickt deine Tagesschritte an die KalorienTracker-API – das Ziffernblatt stündlich ' +
+    'und um 23:55, die Sync-App sofort beim Öffnen. Die API rechnet daraus Aktivitätskalorien ' +
+    'und ersetzt den Schritte-Eintrag des Tages.</p>' +
     '<label for="u">API-Adresse</label>' +
     '<input id="u" type="url" autocapitalize="off" autocorrect="off" value="' + esc(s.apiUrl || DEFAULT_URL) + '">' +
     '<label for="k">API-Key</label>' +

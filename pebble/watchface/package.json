@@ -1,0 +1,93 @@
+{
+  "name": "kalorien-schritte",
+  "author": "KalorienTracker",
+  "version": "1.0.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Kalorien Schritte",
+    "uuid": "17a28acf-1cc9-4fb3-9bda-00384245446c",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "emery",
+      "basalt",
+      "diorite",
+      "flint",
+      "chalk",
+      "gabbro"
+    ],
+    "watchapp": {
+      "watchface": true
+    },
+    "capabilities": [
+      "configurable",
+      "health"
+    ],
+    "messageKeys": [
+      "STEPS",
+      "DATE",
+      "REQUEST_SYNC",
+      "RESULT_KCAL",
+      "RESULT_ERR",
+      "RESULT_RETRY"
+    ],
+    "resources": {
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MENU_ICON",
+          "file": "images/menu_icon.png",
+          "menuIcon": true
+        },
+        {
+          "type": "font",
+          "name": "FONT_TIME_56",
+          "file": "fonts/SpaceGrotesk-Bold.ttf",
+          "characterRegex": "[0-9:]",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "font",
+          "name": "FONT_TIME_44",
+          "file": "fonts/SpaceGrotesk-Bold.ttf",
+          "characterRegex": "[0-9:]",
+          "targetPlatforms": [
+            "basalt",
+            "diorite",
+            "flint",
+            "chalk"
+          ]
+        },
+        {
+          "type": "font",
+          "name": "FONT_NUM_32",
+          "file": "fonts/SpaceGrotesk-Bold.ttf",
+          "characterRegex": "[0-9.-]",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "font",
+          "name": "FONT_NUM_26",
+          "file": "fonts/SpaceGrotesk-Bold.ttf",
+          "characterRegex": "[0-9.-]",
+          "targetPlatforms": [
+            "basalt",
+            "diorite",
+            "flint",
+            "chalk"
+          ]
+        }
+      ]
+    }
+  }
+}

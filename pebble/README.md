@@ -1,7 +1,7 @@
-# Kalorien Schritte – Pebble-Ziffernblatt
+# Pebble-Apps für KalorienTracker
 
-Ziffernblatt für Pebble (Ziel: Pebble Time 2 / Plattform `emery`), das die
-Tagesschritte **stündlich und um 23:55** an die KalorienTracker-API schickt:
+Zwei Apps für Pebble (Ziel: Pebble Time 2 / Plattform `emery`, gebaut für alle
+aktuellen Plattformen), die die Tagesschritte an die KalorienTracker-API schicken:
 
 ```
 POST /api/activity.php   {"schritte": 8432, "datum": "2026-10-07"}
@@ -9,21 +9,46 @@ POST /api/activity.php   {"schritte": 8432, "datum": "2026-10-07"}
 
 Die API rechnet daraus Aktivitätskalorien (Schrittlänge und Gewicht aus dem
 Profil) und **ersetzt** den Schritte-Eintrag des Tages – mehrfaches Senden ist
-unbedenklich. Schlägt ein Sync fehl (Handy nicht verbunden, kein Netz), versucht
-die Uhr es alle 5 Minuten erneut; bei API-Fehlern (z. B. falscher Key) erst zur
-nächsten vollen Stunde.
+unbedenklich.
+
+## `watchface/` – Ziffernblatt „Kalorien Schritte“
+
+Uhrzeit, Datum, Tagesschritte und Sync-Status. Sendet **stündlich und um
+23:55**. Bei Verbindungsfehlern wird alle 5 Minuten erneut versucht bzw. sofort,
+sobald Bluetooth wieder verbunden ist; API-Fehler (z. B. falscher Key) werden
+angezeigt und erst zur nächsten vollen Stunde erneut versucht.
 
 Warnsymbole (nur im Warnfall, rot): **Bluetooth zum Handy getrennt** und
 **Akku unter 15 %** (nicht beim Laden; die Pebble meldet den Akku in 10-%-Schritten).
-Beim Wiederverbinden wird ein ausstehender Sync sofort nachgeholt.
 
-## Aufbau
+## `sync-app/` – App „Kalorien Sync“ (manueller Sync)
 
-- `src/c/main.c` – Ziffernblatt (Uhrzeit, Datum, Schritte, Sync-Status),
-  Health-Abfrage, Sync-Zeitplan
-- `src/pkjs/index.js` – Handy-Teil: Einstellungsseite (API-Adresse, API-Key)
-  und Weiterleitung an die API. Adresse und Key bleiben auf dem Handy.
-- `resources/fonts/` – Space Grotesk Bold (statische Instanz der Variable Font,
+Sendet sofort beim Öffnen, zeigt das Ergebnis und schließt sich nach 3 Sekunden
+(bei Fehlern nach 8 Sekunden; Mitte = erneut senden).
+
+Gedacht für **Quick Launch**: auf der Uhr *Einstellungen → Quick Launch →
+Oben (bzw. Unten) halten → Kalorien Sync*. Dann reicht auf dem Ziffernblatt
+ein langer Druck auf die Taste. (Ziffernblätter selbst dürfen keine Tasten
+verwenden; Touch auf dem ruhenden Ziffernblatt wird von der Firmware nicht
+an die App weitergegeben.)
+
+## Menü-Icons
+
+Je App ein 25 × 25-Icon unter `resources/images/` (`menu_icon~color.png`,
+`menu_icon~bw.png` für Schwarzweiß-Modelle): Apfel als Füllstand
+(Ziffernblatt) bzw. Sync-Pfeile (App). Sichtbar auf der Uhr in der
+Ziffernblatt-Liste (farbig), im App-Menü und bei Quick Launch (dort färbt die
+Firmware die Icons einheitlich ein). Die Core-App auf dem Handy zeigt für selbst
+installierte Apps keine Bilder an (nur Platzhalter) – dort erscheinen Icons nur
+bei Apps aus dem Pebble-App-Store.
+
+## `shared/`
+
+- `pkjs/index.js` – Handy-Teil für beide Apps (per Symlink eingebunden):
+  Einstellungsseite (API-Adresse, API-Key) und Weiterleitung an die API.
+  Adresse und Key bleiben auf dem Handy. Jede Pebble-App hat ihren eigenen
+  Speicher – der Key wird **je App einmal** eingetragen.
+- `fonts/` – Space Grotesk Bold (statische Instanz der Variable Font,
   Lizenz: `OFL-SpaceGrotesk.txt`)
 
 ## Bauen
@@ -31,13 +56,13 @@ Beim Wiederverbinden wird ein ausstehender Sync sofort nachgeholt.
 Mit dem Pebble-SDK (`uv tool install pebble-tool`, `pebble sdk install latest`):
 
 ```
-pebble build          # → build/<ordnername>.pbw
+cd watchface && pebble build    # → build/watchface.pbw
+cd sync-app  && pebble build    # → build/sync-app.pbw
 ```
 
 ## Einrichten
 
-1. `.pbw` in der Pebble-App installieren
-2. Ziffernblatt in der Pebble-App öffnen → Einstellungen → API-Key eintragen
+1. Beide `.pbw` in der Pebble-App installieren
+2. In der Pebble-App bei beiden Apps → Einstellungen → API-Key eintragen
    (zu finden in KalorienTracker unter Profil → Einstellungen → API-Dokumentation)
-3. „Speichern & jetzt senden“ – der Status unten auf dem Ziffernblatt zeigt
-   Uhrzeit und kcal des letzten erfolgreichen Syncs
+3. Auf der Uhr Quick Launch mit „Kalorien Sync“ belegen
