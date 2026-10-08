@@ -1,7 +1,7 @@
 {
   "name": "kalorien-schritte",
   "author": "KalorienTracker",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "keywords": [
     "pebble-app"
   ],
@@ -16,9 +16,7 @@
       "emery",
       "basalt",
       "diorite",
-      "flint",
-      "chalk",
-      "gabbro"
+      "flint"
     ],
     "watchapp": {
       "watchface": true
@@ -33,7 +31,9 @@
       "REQUEST_SYNC",
       "RESULT_KCAL",
       "RESULT_ERR",
-      "RESULT_RETRY"
+      "RESULT_RETRY",
+      "RESULT_REST",
+      "RESULT_AKTIV"
     ],
     "resources": {
       "media": [
@@ -49,8 +49,7 @@
           "file": "fonts/SpaceGrotesk-Bold.ttf",
           "characterRegex": "[0-9:]",
           "targetPlatforms": [
-            "emery",
-            "gabbro"
+            "emery"
           ]
         },
         {
@@ -61,18 +60,7 @@
           "targetPlatforms": [
             "basalt",
             "diorite",
-            "flint",
-            "chalk"
-          ]
-        },
-        {
-          "type": "font",
-          "name": "FONT_NUM_32",
-          "file": "fonts/SpaceGrotesk-Bold.ttf",
-          "characterRegex": "[0-9.-]",
-          "targetPlatforms": [
-            "emery",
-            "gabbro"
+            "flint"
           ]
         },
         {
@@ -81,10 +69,16 @@
           "file": "fonts/SpaceGrotesk-Bold.ttf",
           "characterRegex": "[0-9.-]",
           "targetPlatforms": [
-            "basalt",
-            "diorite",
-            "flint",
-            "chalk"
+            "emery"
+          ]
+        },
+        {
+          "type": "font",
+          "name": "FONT_NUM_22",
+          "file": "fonts/SpaceGrotesk-Bold.ttf",
+          "characterRegex": "[0-9.-]",
+          "targetPlatforms": [
+            "emery"
           ]
         }
       ]

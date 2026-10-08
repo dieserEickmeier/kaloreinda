@@ -163,14 +163,14 @@ $actEndpoints = [
     [
         'method' => 'POST',
         'path'   => 'activity.php',
-        'desc'   => 'Schritte eintragen – der Server rechnet kcal = Schritte × Schrittlänge (m) × 0,00057 × Gewicht und ersetzt den Schritte-Eintrag des Tages. Schrittlänge aus den Einstellungen (leer = Körpergröße × 0,415 bzw. 0,413), Gewicht = letzte Messung an/vor dem Tag. Darf beliebig oft mit dem aktuellen Tagesstand aufgerufen werden.',
+        'desc'   => 'Schritte eintragen – der Server rechnet kcal = Schritte × Schrittlänge (m) × 0,00057 × Gewicht und ersetzt den Schritte-Eintrag des Tages. Schrittlänge aus den Einstellungen (leer = Körpergröße × 0,415 bzw. 0,413), Gewicht = letzte Messung an/vor dem Tag. Darf beliebig oft mit dem aktuellen Tagesstand aufgerufen werden. Die Antwort enthält die Tagesbilanz wie auf „Heute“: aktiv_gesamt, gegessen, ziel und uebrig (kcal).',
         'params' => [
             'schritte'    => 'Schritte des Tages gesamt (0–200000; 0 entfernt den Eintrag)',
             'datum'       => 'Optional, YYYY-MM-DD (Standard: heute)',
             'bezeichnung' => 'Optional (Standard: „Schritte“)',
         ],
         'example_req' => '{"schritte": 8432, "user_id": ' . $currentUser['id'] . ', "api_key": "..."}',
-        'example_res' => '{"ok":true,"id":46,"datum":"2026-06-22","bezeichnung":"Schritte","schritte":8432,"schrittlaenge_m":0.755,"kg":81.7,"kcal":296,"ersetzt":1}',
+        'example_res' => '{"ok":true,"id":46,"datum":"2026-06-22","bezeichnung":"Schritte","schritte":8432,"schrittlaenge_m":0.755,"kg":81.7,"kcal":296,"ersetzt":1,"aktiv_gesamt":296,"gegessen":1240,"ziel":2386,"uebrig":1146}',
     ],
     [
         'method' => 'DELETE',

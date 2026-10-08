@@ -1,11 +1,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Kalorien Schritte – Ziffernblatt für Pebble
+// Kalorien Schritte – Ziffernblatt für Pebble (Layout „Bento“)
 //
-// Zeigt Uhrzeit, Datum und die Schritte des Tages und schickt die
-// Tagesschritte stündlich (zur vollen Stunde) sowie um 23:55 an das Handy.
-// Der JavaScript-Teil (src/pkjs/index.js) leitet sie an die Kalorien-API
-// weiter: POST /api/activity.php {"schritte": …, "datum": …}. Die API
-// ersetzt den Schritte-Eintrag des Tages – mehrfaches Senden ist unbedenklich.
+// Kacheln wie in der KalorienTracker-App: oben Datum und Uhrzeit, darunter
+//   Noch übrig (kcal, laut API) │ Schritte heute (+ Balken bis zum Ziel)
+//   Puls                        │ Aktivkalorien des Tages (laut API) + Sync
+//
+// Die Tagesschritte gehen stündlich (zur vollen Stunde) sowie um 23:55 ans
+// Handy. Der JavaScript-Teil (src/pkjs/index.js) leitet sie an die
+// Kalorien-API weiter: POST /api/activity.php {"schritte": …, "datum": …}.
+// Die API ersetzt den Schritte-Eintrag des Tages und antwortet mit der
+// Tagesbilanz (noch übrig, Aktivkalorien gesamt) – „Noch übrig“ ist also
+// so aktuell wie der letzte Sync.
 //
 // Schlägt ein Sync fehl (Handy nicht verbunden, Netz weg), wird alle
 // 5 Minuten erneut versucht – bzw. sofort, sobald Bluetooth wieder verbunden
@@ -22,28 +27,40 @@
 #define COL_TEXT    GColorWhite
 #define COL_ACCENT  PBL_IF_COLOR_ELSE(GColorInchworm, GColorWhite)
 #define COL_MUTED   PBL_IF_COLOR_ELSE(GColorLightGray, GColorWhite)
+#define COL_BORDER  PBL_IF_COLOR_ELSE(GColorDarkGray, GColorWhite)
+#define COL_TRACK   PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack)
 #define COL_DANGER  PBL_IF_COLOR_ELSE(GColorSunsetOrange, GColorWhite)
+
+#define SCHRITTZIEL 10000      // Pebble Health stellt kein Schrittziel bereit
 
 // ── Persistenter Sync-Status ────────────────────────────────────────────────
 #define PERSIST_LAST_SYNC  1   // time_t des letzten erfolgreichen Syncs
-#define PERSIST_LAST_KCAL  2   // kcal laut API beim letzten Sync
+#define PERSIST_LAST_KCAL  2   // kcal der Schritte laut API
+#define PERSIST_REST       3   // noch übrig (kcal) laut API
+#define PERSIST_AKTIV      4   // Aktivkalorien des Tages gesamt laut API
 
 typedef enum { SYNC_NONE, SYNC_SENDING, SYNC_OK, SYNC_ERROR } SyncState;
 
 static Window    *s_window;
 static Layer     *s_canvas;
 static GFont      s_font_time;
-static GFont      s_font_steps;
+static GFont      s_font_big;     // Wert „Noch übrig“
+static GFont      s_font_val;     // Werte der übrigen Kacheln
+static GPath     *s_heart;
 
 static char       s_time_buf[8];
 static char       s_date_buf[24];
-static char       s_steps_buf[16];
-static char       s_status_buf[40];
+
+static int        s_steps      = -1;
+static int        s_bpm        = 0;
 
 static SyncState  s_state      = SYNC_NONE;
 static bool       s_pending    = false;   // Sync steht aus → alle 5 min erneut
 static time_t     s_last_sync  = 0;
 static int        s_last_kcal  = 0;
+static bool       s_have_bilanz = false;  // REST/AKTIV vom Server erhalten
+static int        s_rest       = 0;
+static int        s_aktiv      = 0;
 static char       s_error[24]  = "";
 
 static bool               s_bt_connected = true;
@@ -51,9 +68,16 @@ static BatteryChargeState s_battery;
 
 #define AKKU_WARN_PROZENT 15   // Pebble meldet in 10-%-Schritten → bei 10 % und 0 %
 
-static const char *WOCHENTAGE[] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa" };
-static const char *MONATE[]     = { "Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
-                                    "Jul", "Aug", "Sep", "Okt", "Nov", "Dez" };
+static const char *WOCHENTAGE[] = { "SO", "MO", "DI", "MI", "DO", "FR", "SA" };
+static const char *MONATE[]     = { "JAN", "FEB", "MÄR", "APR", "MAI", "JUN",
+                                    "JUL", "AUG", "SEP", "OKT", "NOV", "DEZ" };
+
+// Herz (12 × 11 px), wird an die Zielposition verschoben
+static const GPathInfo HEART_PATH = {
+  .num_points = 10,
+  .points = (GPoint[]) { {6, 3}, {4, 0}, {2, 0}, {0, 2}, {0, 5},
+                         {6, 11}, {12, 5}, {12, 2}, {10, 0}, {8, 0} }
+};
 
 // ── Hilfen ──────────────────────────────────────────────────────────────────
 
@@ -68,29 +92,32 @@ static int steps_today(void) {
   return -1;   // Health nicht verfügbar / nicht erlaubt
 }
 
-// Schritte mit Tausenderpunkt: 8432 → „8.432“
-static void format_steps(int steps, char *buf, size_t len) {
-  if (steps < 0)        snprintf(buf, len, "-");
-  else if (steps >= 1000) snprintf(buf, len, "%d.%03d", steps / 1000, steps % 1000);
-  else                  snprintf(buf, len, "%d", steps);
+static int heart_rate_now(void) {
+  #if defined(PBL_HEALTH)
+    time_t now = time(NULL);
+    HealthServiceAccessibilityMask mask =
+        health_service_metric_accessible(HealthMetricHeartRateBPM, now, now);
+    if (mask & HealthServiceAccessibilityMaskAvailable) {
+      return (int)health_service_peek_current_value(HealthMetricHeartRateBPM);
+    }
+  #endif
+  return 0;    // kein Pulssensor / noch kein Messwert
 }
 
-static void update_status_text(void) {
-  switch (s_state) {
-    case SYNC_SENDING:
-      snprintf(s_status_buf, sizeof(s_status_buf), "Sende...");
-      break;
-    case SYNC_ERROR:
-      snprintf(s_status_buf, sizeof(s_status_buf), "%s", s_error[0] ? s_error : "Sync fehlgeschlagen");
-      break;
-    default:
-      if (s_last_sync > 0) {
-        struct tm *t = localtime(&s_last_sync);
-        snprintf(s_status_buf, sizeof(s_status_buf), "%02d:%02d · %d kcal", t->tm_hour, t->tm_min, s_last_kcal);
-      } else {
-        snprintf(s_status_buf, sizeof(s_status_buf), "Noch nicht gesendet");
-      }
-  }
+// Zahl mit Tausenderpunkt: 8432 → „8.432“, -1 → „-“
+static void format_num(int n, char *buf, size_t len) {
+  if (n < 0)          snprintf(buf, len, "-");
+  else if (n >= 1000) snprintf(buf, len, "%d.%03d", n / 1000, n % 1000);
+  else                snprintf(buf, len, "%d", n);
+}
+
+// Stammt der letzte Sync von heute? (sonst gilt „Noch übrig“ nicht mehr)
+static bool synced_today(void) {
+  if (s_last_sync <= 0) return false;
+  time_t now = time(NULL);
+  struct tm last = *localtime(&s_last_sync);
+  struct tm *t = localtime(&now);
+  return last.tm_yday == t->tm_yday && last.tm_year == t->tm_year;
 }
 
 static void update_time(void) {
@@ -101,8 +128,9 @@ static void update_time(void) {
            WOCHENTAGE[t->tm_wday], t->tm_mday, MONATE[t->tm_mon]);
 }
 
-static void update_steps(void) {
-  format_steps(steps_today(), s_steps_buf, sizeof(s_steps_buf));
+static void update_health(void) {
+  s_steps = steps_today();
+  s_bpm   = heart_rate_now();
 }
 
 // ── Sync ────────────────────────────────────────────────────────────────────
@@ -113,7 +141,6 @@ static void sync_now(void) {
     s_state = SYNC_ERROR;
     snprintf(s_error, sizeof(s_error), "Health nicht aktiv");
     s_pending = false;
-    update_status_text();
     layer_mark_dirty(s_canvas);
     return;
   }
@@ -131,16 +158,17 @@ static void sync_now(void) {
   dict_write_cstring(it, MESSAGE_KEY_DATE, date);
   s_pending = true;             // bis die Antwort der API da ist
   s_state = SYNC_SENDING;
-  update_status_text();
   layer_mark_dirty(s_canvas);
   app_message_outbox_send();
 }
 
 static void inbox_received(DictionaryIterator *it, void *ctx) {
-  Tuple *req  = dict_find(it, MESSAGE_KEY_REQUEST_SYNC);
-  Tuple *kcal = dict_find(it, MESSAGE_KEY_RESULT_KCAL);
-  Tuple *err  = dict_find(it, MESSAGE_KEY_RESULT_ERR);
-  Tuple *rtry = dict_find(it, MESSAGE_KEY_RESULT_RETRY);
+  Tuple *req   = dict_find(it, MESSAGE_KEY_REQUEST_SYNC);
+  Tuple *kcal  = dict_find(it, MESSAGE_KEY_RESULT_KCAL);
+  Tuple *rest  = dict_find(it, MESSAGE_KEY_RESULT_REST);
+  Tuple *aktiv = dict_find(it, MESSAGE_KEY_RESULT_AKTIV);
+  Tuple *err   = dict_find(it, MESSAGE_KEY_RESULT_ERR);
+  Tuple *rtry  = dict_find(it, MESSAGE_KEY_RESULT_RETRY);
 
   if (req) {                    // JS ist bereit oder Einstellungen gespeichert
     sync_now();
@@ -154,12 +182,21 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
     s_error[0]  = '\0';
     persist_write_int(PERSIST_LAST_SYNC, (int32_t)s_last_sync);
     persist_write_int(PERSIST_LAST_KCAL, s_last_kcal);
+    s_have_bilanz = rest && aktiv;
+    if (s_have_bilanz) {
+      s_rest  = (int)rest->value->int32;
+      s_aktiv = (int)aktiv->value->int32;
+      persist_write_int(PERSIST_REST, s_rest);
+      persist_write_int(PERSIST_AKTIV, s_aktiv);
+    } else {                    // ältere API ohne Tagesbilanz
+      persist_delete(PERSIST_REST);
+      persist_delete(PERSIST_AKTIV);
+    }
   } else if (err) {
     s_state   = SYNC_ERROR;
     s_pending = rtry && rtry->value->int32 == 1;   // nur Netzfehler wiederholen
     snprintf(s_error, sizeof(s_error), "%s", err->value->cstring);
   }
-  update_status_text();
   layer_mark_dirty(s_canvas);
 }
 
@@ -168,7 +205,6 @@ static void outbox_failed(DictionaryIterator *it, AppMessageResult reason, void 
   s_state   = SYNC_ERROR;
   s_pending = true;
   snprintf(s_error, sizeof(s_error), "Handy nicht verbunden");
-  update_status_text();
   layer_mark_dirty(s_canvas);
 }
 
@@ -176,7 +212,7 @@ static void outbox_failed(DictionaryIterator *it, AppMessageResult reason, void 
 
 static void tick_handler(struct tm *t, TimeUnits changed) {
   update_time();
-  update_steps();
+  update_health();
   bool full_hour  = t->tm_min == 0;
   bool day_close  = t->tm_hour == 23 && t->tm_min == 55;
   bool retry_slot = s_pending && t->tm_min % 5 == 0;
@@ -186,8 +222,9 @@ static void tick_handler(struct tm *t, TimeUnits changed) {
 
 #if defined(PBL_HEALTH)
 static void health_handler(HealthEventType event, void *ctx) {
-  if (event == HealthEventMovementUpdate || event == HealthEventSignificantUpdate) {
-    update_steps();
+  if (event == HealthEventMovementUpdate || event == HealthEventSignificantUpdate ||
+      event == HealthEventHeartRateUpdate) {
+    update_health();
     layer_mark_dirty(s_canvas);
   }
 }
@@ -209,12 +246,28 @@ static bool battery_low(void) {
   return s_battery.charge_percent < AKKU_WARN_PROZENT && !s_battery.is_charging;
 }
 
-// ── Zeichnen ────────────────────────────────────────────────────────────────
+// ── Zeichnen: Grundbausteine ────────────────────────────────────────────────
 
 static void draw_text(GContext *ctx, const char *text, GFont font, GRect box,
                       GColor color, GTextAlignment align) {
   graphics_context_set_text_color(ctx, color);
   graphics_draw_text(ctx, text, font, box, GTextOverflowModeTrailingEllipsis, align, NULL);
+}
+
+static int text_width(const char *text, GFont font) {
+  return graphics_text_layout_get_content_size(text, font, GRect(0, 0, 300, 100),
+             GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft).w;
+}
+
+// Kachel: gefüllt (Akzent) oder schwarz mit Rahmen
+static void draw_tile(GContext *ctx, GRect r, bool filled, GColor fill, int radius) {
+  if (filled) {
+    graphics_context_set_fill_color(ctx, fill);
+    graphics_fill_rect(ctx, r, radius, GCornersAll);
+  } else {
+    graphics_context_set_stroke_color(ctx, COL_BORDER);
+    graphics_draw_round_rect(ctx, r, radius);
+  }
 }
 
 // Warnsymbole als Vektor-Zeichnung (keine Bitmaps → auf allen Plattformen scharf).
@@ -268,80 +321,139 @@ static void draw_warn_icons(GContext *ctx, int x, int y, bool big) {
   if (battery_low())   draw_battery_low_icon(ctx, GPoint(x, y), big);
 }
 
+// Wert + kleine Einheit dahinter („1.146 kcal“), linksbündig ab x.
+// y = Oberkante der Wert-Box; die Einheit sitzt auf der Grundlinie.
+static void draw_value_unit(GContext *ctx, const char *val, GFont f_val, int val_h,
+                            const char *unit, GFont f_unit, int x, int y, int max_w, GColor col) {
+  draw_text(ctx, val, f_val, GRect(x, y, max_w, val_h + 8), col, GTextAlignmentLeft);
+  if (!unit) return;
+  int vw = text_width(val, f_val);
+  if (vw + 2 + text_width(unit, f_unit) > max_w) return;   // passt nicht → weglassen
+  draw_text(ctx, unit, f_unit, GRect(x + vw + 3, y + val_h - 14, max_w - vw - 3, 18), col, GTextAlignmentLeft);
+}
+
+// ── Zeichnen: Ziffernblatt ──────────────────────────────────────────────────
+
 static void canvas_update(Layer *layer, GContext *ctx) {
   GRect b  = layer_get_bounds(layer);
   int   w  = b.size.w;
   int   h  = b.size.h;
   bool  big = w >= 200;
-  int   inset = PBL_IF_ROUND_ELSE(w / 8, big ? 14 : 10);
-  GTextAlignment align = PBL_IF_ROUND_ELSE(GTextAlignmentCenter, GTextAlignmentLeft);
 
   graphics_context_set_fill_color(ctx, COL_BG);
   graphics_fill_rect(ctx, b, 0, GCornerNone);
 
-  GFont f_small = fonts_get_system_font(big ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_14_BOLD);
-  GFont f_steps = s_font_steps;
-  GFont f_label = fonts_get_system_font(big ? FONT_KEY_GOTHIC_18 : FONT_KEY_GOTHIC_14);
+  // Raster: oben die Zeit-Kachel, darunter 2 × 2 Kacheln
+  int m   = big ? 5 : 3;          // Außenrand
+  int g   = big ? 6 : 4;          // Abstand zwischen Kacheln
+  int rad = big ? 12 : 8;
+  int pad = big ? 9 : 6;          // Innenabstand
+  int th  = big ? 88 : 64;        // Höhe Zeit-Kachel
+  int tw  = (w - 2 * m - g) / 2;
+  int rh  = (h - 2 * m - th - 2 * g) / 2;
 
-  int line_small = big ? 22 : 17;
-  int time_h     = big ? 64 : 50;
-  int steps_h    = big ? 36 : 30;
+  GFont f_label = fonts_get_system_font(big ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_09);
+  GFont f_date  = fonts_get_system_font(big ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_14_BOLD);
+  GFont f_unit  = fonts_get_system_font(big ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_09);
+  int   label_h = big ? 16 : 11;
+  int   big_h   = big ? 26 : 22;  // Höhe der Wertschriften (für Grundlinie der Einheit)
+  int   val_h   = big ? 22 : 18;
 
+  // ── Zeit-Kachel ──
+  GRect top = GRect(m, m, w - 2 * m, th);
+  draw_tile(ctx, top, false, COL_BG, rad);
   int  icons_w = warn_icons_width(big);
-  int  icon_h  = ICON_H(big);
-  // Rund: eigene Zeile über dem Datum, nur wenn ein Symbol aktiv ist
-  int  icon_row = PBL_IF_ROUND_ELSE(icons_w ? icon_h + 6 : 0, 0);
+  draw_text(ctx, s_date_buf, f_date,
+            GRect(top.origin.x + pad + 2, top.origin.y + (big ? 3 : 1), top.size.w - 2 * pad - icons_w - 6, 22),
+            COL_MUTED, GTextAlignmentLeft);
+  if (icons_w) {
+    draw_warn_icons(ctx, top.origin.x + top.size.w - pad - icons_w, top.origin.y + (big ? 9 : 6), big);
+  }
+  draw_text(ctx, s_time_buf, s_font_time,
+            GRect(top.origin.x + pad - 1, top.origin.y + (big ? 14 : 12), top.size.w - pad, th),
+            COL_TEXT, GTextAlignmentLeft);
 
-  // Block vertikal mittig: (Symbole), Datum, Uhrzeit, Schritte, Balken, Status
-  int block_h = icon_row + line_small + time_h + 10 + line_small + steps_h + 12 + line_small;
-  int y = (h - block_h) / 2 - (big ? 4 : 2);
-  GRect col = GRect(inset, 0, w - 2 * inset, 0);
+  int y1 = m + th + g, y2 = y1 + rh + g;
+  int x1 = m,          x2 = m + tw + g;
+  int inner = tw - 2 * pad;
+  char buf[16];
 
-  #if defined(PBL_ROUND)
-    if (icons_w) {
-      draw_warn_icons(ctx, (w - icons_w) / 2, y, big);
-      y += icon_row;
-    }
+  // ── Noch übrig (Akzentkachel) ──
+  GRect r = GRect(x1, y1, tw, rh);
+  bool valid = s_have_bilanz && synced_today();
+  bool over  = valid && s_rest < 0;
+  GColor fg  = valid ? COL_BG : COL_MUTED;
+  draw_tile(ctx, r, valid, over ? COL_DANGER : COL_ACCENT, rad);
+  draw_text(ctx, over ? "ÜBER ZIEL" : "NOCH ÜBRIG", f_label,
+            GRect(x1 + pad, y1 + (big ? 4 : 2), inner, label_h + 4), fg, GTextAlignmentLeft);
+  if (valid) format_num(over ? -s_rest : s_rest, buf, sizeof(buf));
+  else       snprintf(buf, sizeof(buf), "-");
+  draw_value_unit(ctx, buf, s_font_big, big_h, valid ? "kcal" : NULL, f_unit,
+                  x1 + pad, y1 + rh - big_h - (big ? 12 : 7), tw - pad - 2, fg);
+
+  // ── Schritte ──
+  r = GRect(x2, y1, tw, rh);
+  draw_tile(ctx, r, false, COL_BG, rad);
+  draw_text(ctx, "SCHRITTE", f_label, GRect(x2 + pad, y1 + (big ? 4 : 2), inner, label_h + 4),
+            COL_MUTED, GTextAlignmentLeft);
+  format_num(s_steps, buf, sizeof(buf));
+  draw_text(ctx, buf, s_font_val, GRect(x2 + pad, y1 + rh - val_h - (big ? 17 : 12), inner, val_h + 8),
+            COL_ACCENT, GTextAlignmentLeft);
+  int bar_y = y1 + rh - (big ? 9 : 6);
+  int prog  = s_steps <= 0 ? 0 : (s_steps >= SCHRITTZIEL ? inner : inner * s_steps / SCHRITTZIEL);
+  graphics_context_set_fill_color(ctx, COL_TRACK);
+  graphics_fill_rect(ctx, GRect(x2 + pad, bar_y, inner, 3), 1, GCornersAll);
+  #if !defined(PBL_COLOR)
+    graphics_context_set_stroke_color(ctx, COL_TEXT);    // Schwarzweiß: Umriss statt grauer Spur
+    graphics_draw_rect(ctx, GRect(x2 + pad, bar_y, inner, 3));
   #endif
+  if (prog > 0) {
+    graphics_context_set_fill_color(ctx, COL_ACCENT);
+    graphics_fill_rect(ctx, GRect(x2 + pad, bar_y, prog, 3), 1, GCornersAll);
+  }
 
-  // Datum (eckig: Warnsymbole rechtsbündig in derselben Zeile)
-  draw_text(ctx, s_date_buf, f_small, GRect(col.origin.x, y, col.size.w - (icons_w ? icons_w + 6 : 0), line_small + 4), COL_MUTED, align);
-  #if !defined(PBL_ROUND)
-    if (icons_w) draw_warn_icons(ctx, col.origin.x + col.size.w - icons_w, y + (line_small - icon_h) / 2 + 2, big);
-  #endif
-  y += line_small;
+  // ── Puls ──
+  r = GRect(x1, y2, tw, rh);
+  draw_tile(ctx, r, false, COL_BG, rad);
+  draw_text(ctx, "PULS", f_label, GRect(x1 + pad, y2 + (big ? 4 : 2), inner, label_h + 4),
+            COL_MUTED, GTextAlignmentLeft);
+  int vy = y2 + rh - val_h - (big ? 12 : 8);
+  gpath_move_to(s_heart, GPoint(x1 + pad, vy + val_h / 2 - 1));
+  graphics_context_set_fill_color(ctx, COL_DANGER);
+  gpath_draw_filled(ctx, s_heart);
+  format_num(s_bpm > 0 ? s_bpm : -1, buf, sizeof(buf));
+  draw_text(ctx, buf, s_font_val, GRect(x1 + pad + 17, vy, inner - 17, val_h + 8), COL_TEXT, GTextAlignmentLeft);
 
-  // Uhrzeit (Space Grotesk Bold)
-  draw_text(ctx, s_time_buf, s_font_time, GRect(col.origin.x - 2, y - (big ? 8 : 6), col.size.w + 4, time_h + 10), COL_TEXT, align);
-  y += time_h + 10;
+  // ── Aktiv + Sync-Status ──
+  r = GRect(x2, y2, tw, rh);
+  draw_tile(ctx, r, false, COL_BG, rad);
+  draw_text(ctx, "AKTIV", f_label, GRect(x2 + pad, y2 + (big ? 4 : 2), inner, label_h + 4),
+            COL_MUTED, GTextAlignmentLeft);
+  // rechts oben: Uhrzeit des letzten Syncs, „…“ beim Senden, „!“ bei Fehler
+  char st[8] = "";
+  GColor st_col = COL_MUTED;
+  if (s_state == SYNC_SENDING)      snprintf(st, sizeof(st), "...");
+  else if (s_state == SYNC_ERROR) { snprintf(st, sizeof(st), "!"); st_col = COL_DANGER; }
+  else if (s_last_sync > 0 && synced_today()) {
+    struct tm *t = localtime(&s_last_sync);
+    snprintf(st, sizeof(st), "%02d:%02d", t->tm_hour, t->tm_min);
+  }
+  draw_text(ctx, st, s_state == SYNC_ERROR ? f_date : f_label,
+            GRect(x2 + pad, y2 + (big ? (s_state == SYNC_ERROR ? 0 : 4) : 2), inner, label_h + 8), st_col, GTextAlignmentRight);
 
-  // „SCHRITTE HEUTE“
-  draw_text(ctx, "SCHRITTE HEUTE", f_small, GRect(col.origin.x, y, col.size.w, line_small + 4), COL_MUTED, align);
-  y += line_small;
-
-  // Schrittzahl in Limette
-  draw_text(ctx, s_steps_buf, f_steps, GRect(col.origin.x, y - 4, col.size.w, steps_h + 6), COL_ACCENT, align);
-  y += steps_h;
-
-  // Trennlinie
-  graphics_context_set_fill_color(ctx, COL_MUTED);
-  int line_w = PBL_IF_ROUND_ELSE(col.size.w / 2, col.size.w);
-  graphics_fill_rect(ctx, GRect(PBL_IF_ROUND_ELSE((w - line_w) / 2, col.origin.x), y + 4, line_w, 1), 0, GCornerNone);
-  y += 12;
-
-  // Sync-Status: Punkt + Text
-  GColor dot = s_state == SYNC_OK ? COL_ACCENT : s_state == SYNC_ERROR ? COL_DANGER : COL_MUTED;
-  #if defined(PBL_ROUND)
-    GSize ts = graphics_text_layout_get_content_size(s_status_buf, f_label,
-                   GRect(0, 0, col.size.w - 14, line_small + 4), GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft);
-    int text_x = (w - ts.w + 12) / 2;   // Punkt + Text mittig
-  #else
-    int text_x = col.origin.x + 12;
-  #endif
-  graphics_context_set_fill_color(ctx, dot);
-  graphics_fill_circle(ctx, GPoint(text_x - 8, y + (big ? 12 : 10)), 3);
-  draw_text(ctx, s_status_buf, f_label, GRect(text_x, y, col.size.w - 12, line_small + 4),
-            s_state == SYNC_ERROR ? COL_DANGER : COL_MUTED, GTextAlignmentLeft);
+  vy = y2 + rh - val_h - (big ? 12 : 8);
+  if (s_state == SYNC_ERROR && !s_pending) {
+    // dauerhafter Fehler (z.B. API-Key) → Text statt Wert, bis zum nächsten Sync
+    graphics_context_set_text_color(ctx, COL_DANGER);
+    graphics_draw_text(ctx, s_error, f_label, GRect(x2 + pad, y2 + label_h + (big ? 6 : 3), inner, rh - label_h - 6),
+                       GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+  } else {
+    int akt = s_have_bilanz ? s_aktiv : s_last_kcal;
+    if (synced_today()) format_num(akt, buf, sizeof(buf));
+    else                snprintf(buf, sizeof(buf), "-");
+    draw_value_unit(ctx, buf, s_font_val, val_h, synced_today() ? "kcal" : NULL, f_unit,
+                    x2 + pad, vy, tw - pad - 2, COL_TEXT);
+  }
 }
 
 // ── Lebenszyklus ────────────────────────────────────────────────────────────
@@ -363,17 +475,25 @@ static void init(void) {
     s_last_kcal = persist_read_int(PERSIST_LAST_KCAL);
     s_state     = SYNC_OK;
   }
+  if (persist_exists(PERSIST_REST) && persist_exists(PERSIST_AKTIV)) {
+    s_rest  = persist_read_int(PERSIST_REST);
+    s_aktiv = persist_read_int(PERSIST_AKTIV);
+    s_have_bilanz = true;
+  }
 
   s_window = window_create();
-  // Große Schriften nur auf großen Displays (emery = Pebble Time 2, gabbro) –
-  // auf den anderen Plattformen überschreiten sie das Glyph-Größenlimit.
+  // Große Schriften nur auf emery (Pebble Time 2) – auf den kleineren
+  // Displays überschreiten sie das Glyph-Größenlimit; dort Systemschriften.
   #if PBL_DISPLAY_WIDTH >= 200
-    s_font_time  = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_TIME_56));
-    s_font_steps = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_NUM_32));
+    s_font_time = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_TIME_56));
+    s_font_big  = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_NUM_26));
+    s_font_val  = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_NUM_22));
   #else
-    s_font_time  = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_TIME_44));
-    s_font_steps = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_NUM_26));
+    s_font_time = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_TIME_44));
+    s_font_big  = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+    s_font_val  = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   #endif
+  s_heart = gpath_create(&HEART_PATH);
 
   window_set_background_color(s_window, COL_BG);
   window_set_window_handlers(s_window, (WindowHandlers) {
@@ -384,8 +504,7 @@ static void init(void) {
   s_battery      = battery_state_service_peek();
 
   update_time();
-  update_steps();
-  update_status_text();
+  update_health();
   window_stack_push(s_window, false);
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
@@ -410,8 +529,12 @@ static void deinit(void) {
   #endif
   connection_service_unsubscribe();
   battery_state_service_unsubscribe();
+  gpath_destroy(s_heart);
   fonts_unload_custom_font(s_font_time);
-  fonts_unload_custom_font(s_font_steps);
+  #if PBL_DISPLAY_WIDTH >= 200
+    fonts_unload_custom_font(s_font_big);
+    fonts_unload_custom_font(s_font_val);
+  #endif
   window_destroy(s_window);
 }
 

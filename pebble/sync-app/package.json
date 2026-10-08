@@ -33,7 +33,9 @@
       "REQUEST_SYNC",
       "RESULT_KCAL",
       "RESULT_ERR",
-      "RESULT_RETRY"
+      "RESULT_RETRY",
+      "RESULT_REST",
+      "RESULT_AKTIV"
     ],
     "resources": {
       "media": [

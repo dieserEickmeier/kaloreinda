@@ -8,7 +8,9 @@
  *        Server rechnet kcal = Schritte × Schrittlänge (m) × 0,00057 × Gewicht
  *        (Schrittlänge aus dem Profil bzw. Körpergröße, Gewicht = letzte Messung
  *        an/vor dem Tag) und ERSETZT den Schritte-Eintrag des Tages (idempotent –
- *        der Aufruf darf beliebig oft mit dem aktuellen Tagesstand kommen)
+ *        der Aufruf darf beliebig oft mit dem aktuellen Tagesstand kommen).
+ *        Antwort enthält zusätzlich die Tagesbilanz: aktiv_gesamt, gegessen,
+ *        ziel, uebrig (wie auf „Heute“)
  * GET    /api/activity.php?datum=2026-06-22&exclude_workout=1
  * DELETE /api/activity.php  Body: { "id": 1 }
  *
@@ -135,7 +137,8 @@ if ($method === 'POST') {
         $stmt = $db->prepare("SELECT * FROM profil WHERE user_id = ? LIMIT 1");
         $stmt->bind_param('i', $userId);
         $stmt->execute();
-        $schrittM    = schrittlaengeM($stmt->get_result()->fetch_assoc() ?: []);
+        $profil      = $stmt->get_result()->fetch_assoc() ?: [];
+        $schrittM    = schrittlaengeM($profil);
         $kcal        = (int)round($schritte * $schrittM * KCAL_PRO_KG_UND_METER * $kg);
         $bezeichnung = substr(trim($body['bezeichnung'] ?? '') ?: 'Schritte', 0, 255);
 
@@ -152,9 +155,15 @@ if ($method === 'POST') {
             $id = $db->insert_id;
         }
         $db->commit();
+        // Tagesbilanz nach dem Eintrag (gleiche Logik wie „Heute“), z.B. fürs Ziffernblatt
+        $tag = ladeTageswerte($db, $userId, $profil, $datum, $datum)[$datum];
         echo json_encode(['ok' => true, 'id' => $id, 'datum' => $datum, 'bezeichnung' => $bezeichnung,
                           'schritte' => $schritte, 'schrittlaenge_m' => $schrittM, 'kg' => $kg,
-                          'kcal' => $kcal, 'ersetzt' => $ersetzt]);
+                          'kcal' => $kcal, 'ersetzt' => $ersetzt,
+                          'aktiv_gesamt' => (int)round($tag['aktivKcal']),
+                          'gegessen' => (int)round($tag['kcal']),
+                          'ziel' => (int)round($tag['ziel']),
+                          'uebrig' => (int)round($tag['uebrig'])]);
         exit;
     }
 
