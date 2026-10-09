@@ -1,7 +1,7 @@
 {
   "name": "kalorien-schritte",
   "author": "KalorienTracker",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "keywords": [
     "pebble-app"
   ],
@@ -33,7 +33,9 @@
       "RESULT_ERR",
       "RESULT_RETRY",
       "RESULT_REST",
-      "RESULT_AKTIV"
+      "RESULT_AKTIV",
+      "RESULT_EATEN",
+      "RESULT_GOAL"
     ],
     "resources": {
       "media": [
@@ -45,7 +47,7 @@
         },
         {
           "type": "font",
-          "name": "FONT_TIME_56",
+          "name": "FONT_TIME_40",
           "file": "fonts/SpaceGrotesk-Bold.ttf",
           "characterRegex": "[0-9:]",
           "targetPlatforms": [
@@ -54,18 +56,7 @@
         },
         {
           "type": "font",
-          "name": "FONT_TIME_44",
-          "file": "fonts/SpaceGrotesk-Bold.ttf",
-          "characterRegex": "[0-9:]",
-          "targetPlatforms": [
-            "basalt",
-            "diorite",
-            "flint"
-          ]
-        },
-        {
-          "type": "font",
-          "name": "FONT_NUM_26",
+          "name": "FONT_NUM_44",
           "file": "fonts/SpaceGrotesk-Bold.ttf",
           "characterRegex": "[0-9.-]",
           "targetPlatforms": [
@@ -74,7 +65,7 @@
         },
         {
           "type": "font",
-          "name": "FONT_NUM_22",
+          "name": "FONT_NUM_20",
           "file": "fonts/SpaceGrotesk-Bold.ttf",
           "characterRegex": "[0-9.-]",
           "targetPlatforms": [

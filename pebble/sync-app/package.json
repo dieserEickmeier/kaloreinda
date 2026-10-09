@@ -35,7 +35,9 @@
       "RESULT_ERR",
       "RESULT_RETRY",
       "RESULT_REST",
-      "RESULT_AKTIV"
+      "RESULT_AKTIV",
+      "RESULT_EATEN",
+      "RESULT_GOAL"
     ],
     "resources": {
       "media": [

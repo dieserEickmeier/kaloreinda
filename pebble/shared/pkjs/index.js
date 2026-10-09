@@ -4,8 +4,9 @@
 //
 // Empfängt {STEPS, DATE} von der Uhr und schickt sie an die API:
 //   POST <API-Adresse>  {"schritte": STEPS, "datum": DATE, "api_key": …}
-// Antwort an die Uhr: RESULT_KCAL (+ RESULT_REST = noch übrig, RESULT_AKTIV =
-// Aktivkalorien des Tages gesamt) oder RESULT_ERR + RESULT_RETRY
+// Antwort an die Uhr: RESULT_KCAL (+ Tagesbilanz: RESULT_REST = noch übrig,
+// RESULT_AKTIV = Aktivkalorien gesamt, RESULT_EATEN = gegessen, RESULT_GOAL = Ziel)
+// oder RESULT_ERR + RESULT_RETRY
 // (1 = Netzfehler, Uhr versucht es in 5 Minuten erneut).
 //
 // API-Adresse und Key bleiben auf dem Handy (localStorage) – sie werden
@@ -57,6 +58,8 @@ function syncSteps(steps, datum) {
       // Tagesbilanz (ab API-Version mit „uebrig“) fürs Ziffernblatt
       if (typeof res.uebrig === 'number')       msg.RESULT_REST  = res.uebrig | 0;
       if (typeof res.aktiv_gesamt === 'number') msg.RESULT_AKTIV = res.aktiv_gesamt | 0;
+      if (typeof res.gegessen === 'number')     msg.RESULT_EATEN = res.gegessen | 0;
+      if (typeof res.ziel === 'number')         msg.RESULT_GOAL  = res.ziel | 0;
       sendToWatch(msg);
     } else if (xhr.status === 401) {
       reportError('API-Key ungültig', false);
