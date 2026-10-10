@@ -1,12 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Kalorien Schritte – Handy-Teil (PebbleKit JS), gemeinsam für das
-// Ziffernblatt (watchface/) und die Quick-Launch-App (sync-app/).
+// Ziffernblatt (watchface/) und die Quick-Launch-App (sync-app/); beide laden
+// diese Datei aus ihrer src/pkjs/index.js.
 //
 // Empfängt {STEPS, DATE} von der Uhr und schickt sie an die API:
 //   POST <API-Adresse>  {"schritte": STEPS, "datum": DATE, "api_key": …}
 // Antwort an die Uhr: RESULT_KCAL (+ Tagesbilanz: RESULT_REST = noch übrig,
-// RESULT_AKTIV = Aktivkalorien gesamt, RESULT_EATEN = gegessen, RESULT_GOAL = Ziel,
-// RESULT_STEP_GOAL = Schrittziel aus den Einstellungen)
+// RESULT_AKTIV = Aktivkalorien gesamt, RESULT_EATEN = gegessen, RESULT_GOAL = Ziel)
 // oder RESULT_ERR + RESULT_RETRY
 // (1 = Netzfehler, Uhr versucht es in 5 Minuten erneut).
 //
@@ -15,6 +15,11 @@
 // der Key wird also je App einmal eingetragen.
 // ─────────────────────────────────────────────────────────────────────────────
 var STORE_KEY = 'kalorien-schritte-settings';
+// App-spezifische Optionen, gesetzt von src/pkjs/index.js der jeweiligen App
+// (vor dem ersten Ereignis): stepGoal = Schrittziel in den Einstellungen
+var APP = { stepGoal: false };
+module.exports = function (opts) { APP = opts || APP; };
+
 var DEFAULT_URL = 'https://k.eick-hoff.de/api/activity.php';
 
 function loadSettings() {
@@ -61,7 +66,6 @@ function syncSteps(steps, datum) {
       if (typeof res.aktiv_gesamt === 'number') msg.RESULT_AKTIV = res.aktiv_gesamt | 0;
       if (typeof res.gegessen === 'number')     msg.RESULT_EATEN = res.gegessen | 0;
       if (typeof res.ziel === 'number')         msg.RESULT_GOAL  = res.ziel | 0;
-      if (typeof res.schrittziel === 'number')  msg.RESULT_STEP_GOAL = res.schrittziel | 0;
       sendToWatch(msg);
     } else if (xhr.status === 401) {
       reportError('API-Key ungültig', false);
@@ -78,9 +82,19 @@ function syncSteps(steps, datum) {
   xhr.send(JSON.stringify({ schritte: steps, datum: datum, api_key: s.apiKey }));
 }
 
-// JS bereit → Uhr soll sofort einen Sync anstoßen
+// Schrittziel aus den Einstellungen (Standard 10.000)
+var DEFAULT_STEP_GOAL = 10000;
+function stepGoal(s) {
+  var n = parseInt(s.stepGoal, 10);
+  return n >= 1000 && n <= 100000 ? n : DEFAULT_STEP_GOAL;
+}
+
+// JS bereit → Uhr soll sofort einen Sync anstoßen; dabei auch das
+// Schrittziel mitschicken (z.B. nach einer Neuinstallation)
 Pebble.addEventListener('ready', function () {
-  sendToWatch({ REQUEST_SYNC: 1 });
+  var msg = { REQUEST_SYNC: 1 };
+  if (APP.stepGoal) msg.STEP_GOAL = stepGoal(loadSettings());
+  sendToWatch(msg);
 });
 
 Pebble.addEventListener('appmessage', function (e) {
@@ -121,9 +135,14 @@ function configPage(s) {
     '<label for="k">API-Key</label>' +
     '<input id="k" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="64 Zeichen" value="' + esc(s.apiKey) + '">' +
     '<small>Zu finden in der App unter Profil → Einstellungen → API-Dokumentation.</small>' +
+    (APP.stepGoal ?
+      '<label for="g">Schrittziel pro Tag</label>' +
+      '<input id="g" type="number" inputmode="numeric" min="1000" max="100000" step="500" value="' + stepGoal(s) + '">' +
+      '<small>Für die Schritte-Säule bzw. den Schritte-Balken des Ziffernblatts.</small>' : '') +
     '<button id="b">Speichern &amp; jetzt senden</button>' +
     '<script>document.getElementById("b").onclick=function(){' +
-    'var r={apiUrl:document.getElementById("u").value.trim(),apiKey:document.getElementById("k").value.trim()};' +
+    'var r={apiUrl:document.getElementById("u").value.trim(),apiKey:document.getElementById("k").value.trim(),' +
+    'stepGoal:(document.getElementById("g")||{}).value};' +
     'location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify(r));};</script>' +
     '</body></html>';
 }
@@ -136,6 +155,11 @@ Pebble.addEventListener('webviewclosed', function (e) {
   if (!e || !e.response) return;          // abgebrochen
   var r;
   try { r = JSON.parse(decodeURIComponent(e.response)); } catch (err) { return; }
-  saveSettings({ apiUrl: (r.apiUrl || '').trim() || DEFAULT_URL, apiKey: (r.apiKey || '').trim() });
-  sendToWatch({ REQUEST_SYNC: 1 });
+  var s = { apiUrl: (r.apiUrl || '').trim() || DEFAULT_URL, apiKey: (r.apiKey || '').trim() };
+  var msg = { REQUEST_SYNC: 1 };
+  if (APP.stepGoal) {
+    s.stepGoal = msg.STEP_GOAL = stepGoal({ stepGoal: r.stepGoal });   // ungültig → Standard
+  }
+  saveSettings(s);
+  sendToWatch(msg);
 });

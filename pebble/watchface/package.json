@@ -1,7 +1,7 @@
 {
   "name": "kalorien-schritte",
   "author": "KalorienTracker",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "keywords": [
     "pebble-app"
   ],
@@ -36,7 +36,7 @@
       "RESULT_AKTIV",
       "RESULT_EATEN",
       "RESULT_GOAL",
-      "RESULT_STEP_GOAL"
+      "STEP_GOAL"
     ],
     "resources": {
       "media": [

@@ -10,9 +10,10 @@ POST /api/activity.php   {"schritte": 8432, "datum": "2026-10-07"}
 Die API rechnet daraus Aktivitätskalorien (Schrittlänge und Gewicht aus dem
 Profil) und **ersetzt** den Schritte-Eintrag des Tages – mehrfaches Senden ist
 unbedenklich. Die Antwort enthält außerdem die Tagesbilanz (`uebrig`,
-`gegessen`, `ziel`, `aktiv_gesamt`), die das Ziffernblatt anzeigt, und das
-`schrittziel` aus den Einstellungen der App (Standard 10.000; die Uhr merkt
-es sich bis zum nächsten Sync).
+`gegessen`, `ziel`, `aktiv_gesamt`), die das Ziffernblatt anzeigt.
+
+Das **Schrittziel** (Standard 10.000) steht in den Einstellungen des
+Ziffernblatts in der Pebble-App, neben API-Adresse und Key; die Uhr speichert es.
 
 ## `watchface/` – Ziffernblatt „Kalorien Schritte“
 
@@ -84,8 +85,10 @@ bei Apps aus dem Pebble-App-Store.
 
 ## `shared/`
 
-- `pkjs/index.js` – Handy-Teil für beide Apps (per Symlink eingebunden):
-  Einstellungsseite (API-Adresse, API-Key) und Weiterleitung an die API.
+- `pkjs/kalorien.js` – Handy-Teil für beide Apps (geladen von der
+  `src/pkjs/index.js` der jeweiligen App, die ihre Optionen übergibt):
+  Einstellungsseite (API-Adresse, API-Key, beim Ziffernblatt zusätzlich das
+  Schrittziel) und Weiterleitung an die API.
   Adresse und Key bleiben auf dem Handy. Jede Pebble-App hat ihren eigenen
   Speicher – der Key wird **je App einmal** eingetragen.
 - `fonts/` – Space Grotesk Bold (statische Instanz der Variable Font,
