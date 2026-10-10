@@ -1,13 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Kalorien Schritte – Ziffernblatt für Pebble
 //
-// Zwei Layouts, beim Build gewählt (layout_hero.h / layout_pixel.h).
+// Drei Layouts, beim Build gewählt (layout_hero.h / layout_bento.h / layout_pixel.h).
 // „Hero-Balken“ (Standard) – die Heute-Seite der KalorienTracker-App im Kleinformat:
 //   Uhrzeit, Datum (zweizeilig rechts: Wochentag / Tag + Monat)
 //   NOCH ÜBRIG  1.146 kcal               (orange „Über dem Ziel“)
 //   [████ gegessen ████░░░░ Rest ░░//Bonus//]
 //   1.240 gegessen                Ziel 2.386
 //   SCHRITTE │ AKTIV
+// „Bento“ – Kacheln: Uhrzeit oben, darunter Noch übrig │ Schritte,
+//   Gegessen │ Aktiv.
 // „Pixel“ – Stunden und Minuten als LED-Punktraster untereinander, rechts eine
 //   Säule mit den Schritten bis zum Tagesziel, unten Aktivkalorien.
 //
@@ -242,6 +244,11 @@ static void draw_text(GContext *ctx, const char *text, GFont font, GRect box,
   graphics_draw_text(ctx, text, font, box, GTextOverflowModeTrailingEllipsis, align, NULL);
 }
 
+static inline int text_width(const char *text, GFont font) {
+  return graphics_text_layout_get_content_size(text, font, GRect(0, 0, 300, 100),
+             GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft).w;
+}
+
 // Warnsymbole als Vektor-Zeichnung (keine Bitmaps → auf allen Plattformen scharf).
 // Jeweils links oben an Punkt o, Höhe ICON_H; Rückgabe = Breite.
 #define ICON_H(big) ((big) ? 16 : 12)
@@ -292,12 +299,14 @@ static void draw_warn_icons(GContext *ctx, int x, int y, bool big) {
   if (!s_bt_connected) x += draw_bt_off_icon(ctx, GPoint(x, y), big) + 6;
   if (battery_low())   draw_battery_low_icon(ctx, GPoint(x, y), big);
 }
-// ── Layout (beim Build gewählt, siehe wscript: LAYOUT=hero|pixel) ───────────
+// ── Layout (beim Build gewählt, siehe wscript: LAYOUT=hero|bento|pixel) ─────
 //
 // Jede Layout-Datei liefert canvas_update(), layout_init() und layout_deinit()
 // und nutzt Zustand und Zeichenhilfen von oben.
 #if defined(LAYOUT_PIXEL)
   #include "layout_pixel.h"
+#elif defined(LAYOUT_BENTO)
+  #include "layout_bento.h"
 #else
   #include "layout_hero.h"
 #endif

@@ -14,7 +14,7 @@ unbedenklich. Die Antwort enthält außerdem die Tagesbilanz (`uebrig`,
 
 ## `watchface/` – Ziffernblatt „Kalorien Schritte“
 
-Zwei Layouts, die Sync-Logik ist gemeinsam (`src/c/main.c`); das Layout wird
+Drei Layouts, die Sync-Logik ist gemeinsam (`src/c/main.c`); das Layout wird
 beim Bauen gewählt (siehe unten). Beide haben dieselbe App-ID – wer eine
 Variante installiert, ersetzt die andere, der API-Key bleibt.
 
@@ -27,6 +27,11 @@ Variante installiert, ersetzt die andere, der API-Key bleibt.
 - **Tagesbalken** wie auf „Heute“: gegessen (Limette), Rest (grau), Bonus aus
   Bewegung (schraffiert), über dem Ziel (orange); darunter „gegessen“ und „Ziel“
 - unten **Schritte** │ **Aktiv** (Aktivkalorien des Tages)
+
+**Bento** (`layout_bento.h`) – Kacheln wie in der App: oben Uhrzeit und Datum,
+darunter **Noch übrig** (Limettenkachel, orange über dem Ziel) │ **Schritte**
+mit Balken bis 10.000, **Gegessen** mit Balken bis zum Tagesziel │ **Aktiv**
+mit Sync-Status rechts oben.
 
 **Pixel** (`layout_pixel.h`) – Stunden (weiß) und Minuten (Limette) als
 LED-Punktraster untereinander, rechts eine Säule aus 14 Segmenten, die sich bis
@@ -86,6 +91,7 @@ Mit dem Pebble-SDK (`uv tool install pebble-tool`, `pebble sdk install latest`):
 
 ```
 cd watchface && pebble build    # → build/watchface.pbw (Hero-Balken)
+cd watchface && LAYOUT=bento pebble build    # → Layout „Bento“
 cd watchface && LAYOUT=pixel pebble build    # → Layout „Pixel“
 cd sync-app  && pebble build    # → build/sync-app.pbw
 ```

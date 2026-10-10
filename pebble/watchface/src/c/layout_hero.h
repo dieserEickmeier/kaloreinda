@@ -6,11 +6,6 @@ static GFont s_font_time;
 static GFont s_font_big;     // Wert „Noch übrig“
 static GFont s_font_val;     // Kennzahlen unten
 
-static int text_width(const char *text, GFont font) {
-  return graphics_text_layout_get_content_size(text, font, GRect(0, 0, 300, 100),
-             GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft).w;
-}
-
 // ── Zeichnen: Tagesbalken ───────────────────────────────────────────────────
 //
 // Wie der Balken auf „Heute“: gegessen (Limette) │ Rest (grau) │ Bonus aus
