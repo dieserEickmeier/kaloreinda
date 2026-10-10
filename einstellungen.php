@@ -50,17 +50,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // Leer = automatisch aus Körpergröße (NULL); sonst 30–150 cm
     $schrittRaw  = trim(str_replace(',', '.', $_POST['schrittlaenge'] ?? ''));
     $schritt     = is_numeric($schrittRaw) ? round(max(30, min(150, (float)$schrittRaw)), 1) : null;
+    $schrittziel = max(1000, min(100000, (int)($_POST['schrittziel'] ?? 10000)));
 
     $stmtEx = $db->prepare("SELECT id FROM profil WHERE user_id = ? LIMIT 1");
     $stmtEx->bind_param("i", $userId); $stmtEx->execute();
     $existing = $stmtEx->get_result()->fetch_assoc();
     if ($existing) {
-        $stmt = $db->prepare("UPDATE profil SET groesse_cm=?, aktivitaet=?, defizit_kcal=?, geschlecht=?, geburtsjahr=?, eintraege_gruppieren=?, makros_anzeigen=?, startseite=?, schrittlaenge_cm=? WHERE id=? AND user_id=?");
+        $stmt = $db->prepare("UPDATE profil SET groesse_cm=?, aktivitaet=?, defizit_kcal=?, geschlecht=?, geburtsjahr=?, eintraege_gruppieren=?, makros_anzeigen=?, startseite=?, schrittlaenge_cm=?, schrittziel=? WHERE id=? AND user_id=?");
         $existingId = $existing['id'];
-        $stmt->bind_param('isisiiisdii', $groesse, $aktivitaet, $defizit, $geschlecht, $geburtsjahr, $gruppieren, $makros, $startseite, $schritt, $existingId, $userId);
+        $stmt->bind_param('isisiiisdiii', $groesse, $aktivitaet, $defizit, $geschlecht, $geburtsjahr, $gruppieren, $makros, $startseite, $schritt, $schrittziel, $existingId, $userId);
     } else {
-        $stmt = $db->prepare("INSERT INTO profil (user_id, groesse_cm, aktivitaet, defizit_kcal, geschlecht, geburtsjahr, eintraege_gruppieren, makros_anzeigen, startseite, schrittlaenge_cm) VALUES (?,?,?,?,?,?,?,?,?,?)");
-        $stmt->bind_param('iisisiiisd', $userId, $groesse, $aktivitaet, $defizit, $geschlecht, $geburtsjahr, $gruppieren, $makros, $startseite, $schritt);
+        $stmt = $db->prepare("INSERT INTO profil (user_id, groesse_cm, aktivitaet, defizit_kcal, geschlecht, geburtsjahr, eintraege_gruppieren, makros_anzeigen, startseite, schrittlaenge_cm, schrittziel) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+        $stmt->bind_param('iisisiiisdi', $userId, $groesse, $aktivitaet, $defizit, $geschlecht, $geburtsjahr, $gruppieren, $makros, $startseite, $schritt, $schrittziel);
     }
     $stmt->execute();
     echo '<script>location.href="einstellungen.php?saved=1"</script>'; exit;
@@ -133,6 +134,14 @@ $defizitAkt = (int)($profil['defizit_kcal'] ?? 500);
                    value="<?= !empty($profil['schrittlaenge_cm']) ? rtrim(rtrim(number_format((float)$profil['schrittlaenge_cm'], 1, ',', ''), '0'), ',') : '' ?>"
                    placeholder="automatisch: <?= number_format(schrittlaengeAutoCm($profil ?? []), 1, ',', '') ?> cm">
             <div class="tile__sub">Für Schritte per API (z.B. Smartwatch). Automatisch = Körpergröße × 0,415 (Männer) bzw. 0,413 (Frauen).</div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label" for="fSchrittziel">Schrittziel pro Tag</label>
+            <input type="number" name="schrittziel" id="fSchrittziel" min="1000" max="100000" step="500"
+                   value="<?= (int)($profil['schrittziel'] ?? 10000) ?>"
+                   class="form-control" inputmode="numeric">
+            <div class="tile__sub">Fürs Pebble-Ziffernblatt (Schritte-Säule bzw. -Balken). Kommt beim nächsten Sync auf der Uhr an.</div>
         </div>
 
         <div class="mb-3">

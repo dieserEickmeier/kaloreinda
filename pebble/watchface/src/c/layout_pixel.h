@@ -14,7 +14,6 @@
 // Die Ziffern sind gezeichnete Rechtecke, also gilt kein Schrift-Größenlimit.
 // ─────────────────────────────────────────────────────────────────────────────
 
-#define SCHRITT_ZIEL 10000
 #define SAEULE_SEGMENTE 14
 
 // 3 × 5 Raster je Ziffer, zeilenweise von oben, Bit 14 = links oben
@@ -119,7 +118,7 @@ static void canvas_update(Layer *layer, GContext *ctx) {
 
   // ── Schritte-Säule, füllt sich von unten ──
   int steps = s_steps < 0 ? 0 : s_steps;
-  int on    = (steps * SAEULE_SEGMENTE + SCHRITT_ZIEL / 2) / SCHRITT_ZIEL;
+  int on    = (steps * SAEULE_SEGMENTE + s_step_goal / 2) / s_step_goal;
   if (on > SAEULE_SEGMENTE) on = SAEULE_SEGMENTE;
   draw_column(ctx, GRect(col_x, col_y, col_w, col_h), on, COL_ACCENT);
 

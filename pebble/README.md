@@ -10,7 +10,9 @@ POST /api/activity.php   {"schritte": 8432, "datum": "2026-10-07"}
 Die API rechnet daraus Aktivitätskalorien (Schrittlänge und Gewicht aus dem
 Profil) und **ersetzt** den Schritte-Eintrag des Tages – mehrfaches Senden ist
 unbedenklich. Die Antwort enthält außerdem die Tagesbilanz (`uebrig`,
-`gegessen`, `ziel`, `aktiv_gesamt`), die das Ziffernblatt anzeigt.
+`gegessen`, `ziel`, `aktiv_gesamt`), die das Ziffernblatt anzeigt, und das
+`schrittziel` aus den Einstellungen der App (Standard 10.000; die Uhr merkt
+es sich bis zum nächsten Sync).
 
 ## `watchface/` – Ziffernblatt „Kalorien Schritte“
 
@@ -30,12 +32,12 @@ Variante installiert, ersetzt die andere, der API-Key bleibt.
 
 **Bento** (`layout_bento.h`) – Kacheln wie in der App: oben Uhrzeit und Datum,
 darunter **Noch übrig** (Limettenkachel, orange über dem Ziel) │ **Schritte**
-mit Balken bis 10.000, **Gegessen** mit Balken bis zum Tagesziel │ **Aktiv**
+mit Balken bis zum Schrittziel, **Gegessen** mit Balken bis zum Tagesziel │ **Aktiv**
 mit Sync-Status rechts oben.
 
 **Pixel** (`layout_pixel.h`) – Stunden (weiß) und Minuten (Limette) als
 LED-Punktraster untereinander, rechts eine Säule aus 14 Segmenten, die sich bis
-10.000 Schritte füllt, darunter die Schritte („8,4k“); unten links die
+zum Schrittziel füllt, darunter die Schritte („8,4k“); unten links die
 Aktivkalorien des Tages bzw. ein Sync-Fehler.
 
 **Säulen** (Variante von Pixel, ebenfalls `layout_pixel.h`) – zusätzlich eine

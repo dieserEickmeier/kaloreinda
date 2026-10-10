@@ -4,7 +4,8 @@
 //   ┌ SA, 10. OKT ──────────── ⚠ ┐
 //   │ 14:37                      │
 //   ├──────────────┬─────────────┤
-//   │ NOCH ÜBRIG   │ SCHRITTE    │   „Noch übrig“ als Limettenkachel
+//   │ NOCH ÜBRIG   │ SCHRITTE    │   „Noch übrig“ als Limettenkachel,
+//   │              │             │   Schritte-Balken bis zum Schrittziel
 //   │ 1.146 kcal   │ 8.432 ▬▬▬   │   (orange über dem Ziel)
 //   ├──────────────┼─────────────┤
 //   │ GEGESSEN     │ AKTIV 14:00 │   rechts oben in „Aktiv“: Sync-Status
@@ -13,7 +14,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #define COL_BORDER   PBL_IF_COLOR_ELSE(GColorDarkGray, GColorWhite)
-#define SCHRITTZIEL  10000      // Pebble Health stellt kein Schrittziel bereit
 
 static GFont  s_font_time;
 static GFont  s_font_big;     // Wert „Noch übrig“
@@ -128,7 +128,7 @@ static void canvas_update(Layer *layer, GContext *ctx) {
             COL_MUTED, GTextAlignmentLeft);
   format_num(s_steps, buf, sizeof(buf));
   draw_text(ctx, buf, s_font_val, GRect(x2 + pad, y1 + val_y, inner, val_h + 8), COL_ACCENT, GTextAlignmentLeft);
-  draw_progress(ctx, x2 + pad, y1 + bar_y, inner, s_steps, SCHRITTZIEL, COL_ACCENT);
+  draw_progress(ctx, x2 + pad, y1 + bar_y, inner, s_steps, s_step_goal, COL_ACCENT);
 
   // ── Gegessen, Balken bis zum Tagesziel ──
   draw_tile(ctx, GRect(x1, y2, tw, rh), false, COL_BG, rad);

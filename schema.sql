@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS profil (
     makros_anzeigen      TINYINT(1) DEFAULT 1,
     startseite           VARCHAR(20) DEFAULT 'heute',
     schrittlaenge_cm     DECIMAL(4,1) DEFAULT NULL,    -- NULL = aus Körpergröße (siehe schrittlaengeM() in includes/ui.php)  -- Seite beim App-Start (siehe startseiten() in includes/ui.php)
+    schrittziel          INT  DEFAULT 10000,           -- Tagesziel Schritte (geht über die Schritte-API ans Ziffernblatt)
     erstellt_am     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     aktualisiert_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -254,3 +255,6 @@ ALTER TABLE profil ADD COLUMN IF NOT EXISTS startseite VARCHAR(20) DEFAULT 'heut
 
 -- 12. Schrittlänge für die Schritte-API (NULL = automatisch aus Körpergröße):
 ALTER TABLE profil ADD COLUMN IF NOT EXISTS schrittlaenge_cm DECIMAL(4,1) DEFAULT NULL AFTER startseite;
+
+-- 13. Schrittziel pro Tag (geht über die Schritte-API ans Ziffernblatt):
+ALTER TABLE profil ADD COLUMN IF NOT EXISTS schrittziel INT DEFAULT 10000 AFTER schrittlaenge_cm;

@@ -47,6 +47,7 @@
 #define PERSIST_AKTIV      4   // Aktivkalorien des Tages gesamt laut API
 #define PERSIST_EATEN      5   // gegessen (kcal) laut API
 #define PERSIST_GOAL       6   // Tagesziel inkl. Aktivkalorien laut API
+#define PERSIST_STEP_GOAL  7   // Schrittziel aus den Einstellungen der App
 
 typedef enum { SYNC_NONE, SYNC_SENDING, SYNC_OK, SYNC_ERROR } SyncState;
 
@@ -68,6 +69,7 @@ static int        s_rest       = 0;
 static int        s_aktiv      = 0;
 static int        s_eaten      = 0;
 static int        s_goal       = 0;
+static int        s_step_goal  = 10000;   // bis zum ersten Sync mit neuer API
 static char       s_error[24]  = "";
 
 static bool               s_bt_connected = true;
@@ -156,6 +158,7 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   Tuple *aktiv = dict_find(it, MESSAGE_KEY_RESULT_AKTIV);
   Tuple *eaten = dict_find(it, MESSAGE_KEY_RESULT_EATEN);
   Tuple *goal  = dict_find(it, MESSAGE_KEY_RESULT_GOAL);
+  Tuple *sgoal = dict_find(it, MESSAGE_KEY_RESULT_STEP_GOAL);
   Tuple *err   = dict_find(it, MESSAGE_KEY_RESULT_ERR);
   Tuple *rtry  = dict_find(it, MESSAGE_KEY_RESULT_RETRY);
 
@@ -183,6 +186,10 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
       persist_write_int(PERSIST_GOAL, s_goal);
     } else {                    // ältere API ohne Tagesbilanz
       persist_delete(PERSIST_REST);
+    }
+    if (sgoal && sgoal->value->int32 > 0) {
+      s_step_goal = (int)sgoal->value->int32;
+      persist_write_int(PERSIST_STEP_GOAL, s_step_goal);
     }
   } else if (err) {
     s_state   = SYNC_ERROR;
@@ -339,6 +346,7 @@ static void init(void) {
     s_goal  = persist_read_int(PERSIST_GOAL);
     s_have_bilanz = true;
   }
+  if (persist_exists(PERSIST_STEP_GOAL)) s_step_goal = persist_read_int(PERSIST_STEP_GOAL);
 
   s_window = window_create();
   layout_init();

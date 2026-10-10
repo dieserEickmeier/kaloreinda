@@ -10,7 +10,7 @@
  *        an/vor dem Tag) und ERSETZT den Schritte-Eintrag des Tages (idempotent –
  *        der Aufruf darf beliebig oft mit dem aktuellen Tagesstand kommen).
  *        Antwort enthält zusätzlich die Tagesbilanz: aktiv_gesamt, gegessen,
- *        ziel, uebrig (wie auf „Heute“)
+ *        ziel, uebrig (wie auf „Heute“) sowie das schrittziel aus den Einstellungen
  * GET    /api/activity.php?datum=2026-06-22&exclude_workout=1
  * DELETE /api/activity.php  Body: { "id": 1 }
  *
@@ -163,7 +163,8 @@ if ($method === 'POST') {
                           'aktiv_gesamt' => (int)round($tag['aktivKcal']),
                           'gegessen' => (int)round($tag['kcal']),
                           'ziel' => (int)round($tag['ziel']),
-                          'uebrig' => (int)round($tag['uebrig'])]);
+                          'uebrig' => (int)round($tag['uebrig']),
+                          'schrittziel' => (int)($profil['schrittziel'] ?? 10000)]);
         exit;
     }
 

@@ -5,7 +5,8 @@
 // Empfängt {STEPS, DATE} von der Uhr und schickt sie an die API:
 //   POST <API-Adresse>  {"schritte": STEPS, "datum": DATE, "api_key": …}
 // Antwort an die Uhr: RESULT_KCAL (+ Tagesbilanz: RESULT_REST = noch übrig,
-// RESULT_AKTIV = Aktivkalorien gesamt, RESULT_EATEN = gegessen, RESULT_GOAL = Ziel)
+// RESULT_AKTIV = Aktivkalorien gesamt, RESULT_EATEN = gegessen, RESULT_GOAL = Ziel,
+// RESULT_STEP_GOAL = Schrittziel aus den Einstellungen)
 // oder RESULT_ERR + RESULT_RETRY
 // (1 = Netzfehler, Uhr versucht es in 5 Minuten erneut).
 //
@@ -60,6 +61,7 @@ function syncSteps(steps, datum) {
       if (typeof res.aktiv_gesamt === 'number') msg.RESULT_AKTIV = res.aktiv_gesamt | 0;
       if (typeof res.gegessen === 'number')     msg.RESULT_EATEN = res.gegessen | 0;
       if (typeof res.ziel === 'number')         msg.RESULT_GOAL  = res.ziel | 0;
+      if (typeof res.schrittziel === 'number')  msg.RESULT_STEP_GOAL = res.schrittziel | 0;
       sendToWatch(msg);
     } else if (xhr.status === 401) {
       reportError('API-Key ungültig', false);

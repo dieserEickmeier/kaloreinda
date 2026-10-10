@@ -37,7 +37,8 @@
       "RESULT_REST",
       "RESULT_AKTIV",
       "RESULT_EATEN",
-      "RESULT_GOAL"
+      "RESULT_GOAL",
+      "RESULT_STEP_GOAL"
     ],
     "resources": {
       "media": [
