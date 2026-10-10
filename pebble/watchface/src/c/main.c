@@ -2,11 +2,11 @@
 // Kalorien Schritte – Ziffernblatt für Pebble (Layout „Hero-Balken“)
 //
 // Die Heute-Seite der KalorienTracker-App im Kleinformat:
-//   Uhrzeit, Datum
+//   Uhrzeit, Datum (zweizeilig rechts: Wochentag / Tag + Monat)
 //   NOCH ÜBRIG  1.146 kcal               (orange „Über dem Ziel“)
 //   [████ gegessen ████░░░░ Rest ░░//Bonus//]
 //   1.240 gegessen                Ziel 2.386
-//   SCHRITTE │ AKTIV │ PULS
+//   SCHRITTE │ AKTIV
 //
 // Die Tagesschritte gehen stündlich (zur vollen Stunde) sowie um 23:55 ans
 // Handy. Der JavaScript-Teil (src/pkjs/index.js) leitet sie an die
@@ -51,10 +51,10 @@ static GFont      s_font_big;     // Wert „Noch übrig“
 static GFont      s_font_val;     // Kennzahlen unten
 
 static char       s_time_buf[8];
-static char       s_date_buf[24];
+static char       s_wday_buf[4];
+static char       s_date_buf[12];
 
 static int        s_steps      = -1;
-static int        s_bpm        = 0;
 
 static SyncState  s_state      = SYNC_NONE;
 static bool       s_pending    = false;   // Sync steht aus → alle 5 min erneut
@@ -89,18 +89,6 @@ static int steps_today(void) {
   return -1;   // Health nicht verfügbar / nicht erlaubt
 }
 
-static int heart_rate_now(void) {
-  #if defined(PBL_HEALTH)
-    time_t now = time(NULL);
-    HealthServiceAccessibilityMask mask =
-        health_service_metric_accessible(HealthMetricHeartRateBPM, now, now);
-    if (mask & HealthServiceAccessibilityMaskAvailable) {
-      return (int)health_service_peek_current_value(HealthMetricHeartRateBPM);
-    }
-  #endif
-  return 0;    // kein Pulssensor / noch kein Messwert
-}
-
 // Zahl mit Tausenderpunkt: 8432 → „8.432“, -1 → „-“
 static void format_num(int n, char *buf, size_t len) {
   if (n < 0)          snprintf(buf, len, "-");
@@ -121,13 +109,12 @@ static void update_time(void) {
   time_t now = time(NULL);
   struct tm *t = localtime(&now);
   strftime(s_time_buf, sizeof(s_time_buf), clock_is_24h_style() ? "%H:%M" : "%I:%M", t);
-  snprintf(s_date_buf, sizeof(s_date_buf), "%s, %d. %s",
-           WOCHENTAGE[t->tm_wday], t->tm_mday, MONATE[t->tm_mon]);
+  snprintf(s_wday_buf, sizeof(s_wday_buf), "%s", WOCHENTAGE[t->tm_wday]);
+  snprintf(s_date_buf, sizeof(s_date_buf), "%d. %s", t->tm_mday, MONATE[t->tm_mon]);
 }
 
 static void update_health(void) {
   s_steps = steps_today();
-  s_bpm   = heart_rate_now();
 }
 
 // ── Sync ────────────────────────────────────────────────────────────────────
@@ -224,8 +211,7 @@ static void tick_handler(struct tm *t, TimeUnits changed) {
 
 #if defined(PBL_HEALTH)
 static void health_handler(HealthEventType event, void *ctx) {
-  if (event == HealthEventMovementUpdate || event == HealthEventSignificantUpdate ||
-      event == HealthEventHeartRateUpdate) {
+  if (event == HealthEventMovementUpdate || event == HealthEventSignificantUpdate) {
     update_health();
     layer_mark_dirty(s_canvas);
   }
@@ -401,9 +387,16 @@ static void canvas_update(Layer *layer, GContext *ctx) {
 
   // ── Uhrzeit, Datum, Warnsymbole ──
   draw_text(ctx, s_time_buf, s_font_time, GRect(x - 2, y_time, cw, big ? 48 : 36), COL_TEXT, GTextAlignmentLeft);
-  draw_text(ctx, s_date_buf, f_date, GRect(x, big ? 4 : 2, cw, 22), COL_MUTED, GTextAlignmentRight);
+  // Datum zweizeilig rechtsbündig, damit es nicht an die Uhrzeit stößt;
+  // Warnsymbole links neben dem (kurzen) Wochentag
+  int line_h = big ? 20 : 15;
+  draw_text(ctx, s_wday_buf, f_date, GRect(x, big ? 2 : 0, cw, 22), COL_MUTED, GTextAlignmentRight);
+  draw_text(ctx, s_date_buf, f_date, GRect(x, (big ? 2 : 0) + line_h, cw, 22), COL_MUTED, GTextAlignmentRight);
   int icons_w = warn_icons_width(big);
-  if (icons_w) draw_warn_icons(ctx, x + cw - icons_w, big ? 28 : 20, big);
+  if (icons_w) {
+    int wd_w = text_width(s_wday_buf, f_date);
+    draw_warn_icons(ctx, x + cw - wd_w - 6 - icons_w, big ? 6 : 3, big);
+  }
 
   // ── Noch übrig + Sync-Status rechts daneben ──
   draw_text(ctx, over ? "ÜBER DEM ZIEL" : "NOCH ÜBRIG", f_small, GRect(x, y_label, cw, 18),
@@ -445,26 +438,19 @@ static void canvas_update(Layer *layer, GContext *ctx) {
     draw_text(ctx, "Noch kein Sync heute", f_info, GRect(x, y_info, cw, 18), COL_MUTED, GTextAlignmentLeft);
   }
 
-  // ── Kennzahlen: Schritte │ Aktiv │ Puls ──
+  // ── Kennzahlen: Schritte │ Aktiv ──
   graphics_context_set_fill_color(ctx, COL_LINE);
   graphics_fill_rect(ctx, GRect(x, y_line, cw, 1), 0, GCornerNone);
-  // Schritte bekommt die breiteste Spalte (bis „12.345“)
-  int c1 = cw * 40 / 100, c2 = cw * 30 / 100;
-  int cols_x[3] = { x, x + c1 + 6, x + c1 + c2 + 6 };
-  int cols_w[3] = { c1, c2 - 6, cw - c1 - c2 - 6 };
-  const char *labels[3] = { "SCHRITTE", "AKTIV", "PULS" };
-  for (int i = 0; i < 3; i++) {
-    if (i) graphics_fill_rect(ctx, GRect(cols_x[i] - 6, y_line + 8, 1, big ? 40 : 30), 0, GCornerNone);
-    draw_text(ctx, labels[i], f_small, GRect(cols_x[i], y_stat, cols_w[i], 16), COL_MUTED, GTextAlignmentLeft);
-  }
+  int half = cw / 2;
+  graphics_fill_rect(ctx, GRect(x + half - 3, y_line + 8, 1, big ? 40 : 30), 0, GCornerNone);
+  draw_text(ctx, "SCHRITTE", f_small, GRect(x, y_stat, half - 6, 16), COL_MUTED, GTextAlignmentLeft);
+  draw_text(ctx, "AKTIV", f_small, GRect(x + half + 3, y_stat, half - 3, 16), COL_MUTED, GTextAlignmentLeft);
   int vy = y_stat + (big ? 16 : 11);
   format_num(s_steps, buf, sizeof(buf));
-  draw_text(ctx, buf, s_font_val, GRect(cols_x[0], vy, cols_w[0], stat_h + 8), COL_ACCENT, GTextAlignmentLeft);
+  draw_text(ctx, buf, s_font_val, GRect(x, vy, half - 6, stat_h + 8), COL_ACCENT, GTextAlignmentLeft);
   if (synced_today()) format_num(s_have_bilanz ? s_aktiv : s_last_kcal, buf, sizeof(buf));
   else                snprintf(buf, sizeof(buf), "-");
-  draw_text(ctx, buf, s_font_val, GRect(cols_x[1], vy, cols_w[1], stat_h + 8), COL_TEXT, GTextAlignmentLeft);
-  format_num(s_bpm > 0 ? s_bpm : -1, buf, sizeof(buf));
-  draw_text(ctx, buf, s_font_val, GRect(cols_x[2], vy, cols_w[2], stat_h + 8), COL_TEXT, GTextAlignmentLeft);
+  draw_text(ctx, buf, s_font_val, GRect(x + half + 3, vy, half - 3, stat_h + 8), COL_TEXT, GTextAlignmentLeft);
 }
 
 // ── Lebenszyklus ────────────────────────────────────────────────────────────

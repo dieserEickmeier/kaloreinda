@@ -16,12 +16,13 @@ unbedenklich. Die Antwort enthält außerdem die Tagesbilanz (`uebrig`,
 
 Layout „Hero-Balken“ – die Heute-Seite der App im Kleinformat:
 
-- oben **Uhrzeit** und **Datum** (Warnsymbole darunter)
+- oben **Uhrzeit**, rechts daneben das **Datum** zweizeilig (Wochentag / Tag + Monat;
+  Warnsymbole links neben dem Wochentag)
 - **Noch übrig** in kcal groß (orange „Über dem Ziel“, wenn überschritten),
   rechts daneben die Uhrzeit des letzten Syncs („...“ beim Senden, „!“ bei Fehler)
 - **Tagesbalken** wie auf „Heute“: gegessen (Limette), Rest (grau), Bonus aus
   Bewegung (schraffiert), über dem Ziel (orange); darunter „gegessen“ und „Ziel“
-- unten **Schritte** │ **Aktiv** (Aktivkalorien des Tages) │ **Puls**
+- unten **Schritte** │ **Aktiv** (Aktivkalorien des Tages)
 
 Alle Kalorienwerte sind so aktuell wie der letzte Sync (höchstens eine
 Stunde alt). Das Ziffernblatt sendet außerdem jedes Mal, wenn es neu startet –
