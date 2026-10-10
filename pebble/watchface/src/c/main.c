@@ -12,6 +12,7 @@
 //   Gegessen │ Aktiv.
 // „Pixel“ – Stunden und Minuten als LED-Punktraster untereinander, rechts eine
 //   Säule mit den Schritten bis zum Tagesziel, unten Aktivkalorien.
+//   Variante „Säulen“: zusätzlich eine Säule für „noch übrig“.
 //
 // Die Tagesschritte gehen stündlich (zur vollen Stunde) sowie um 23:55 ans
 // Handy. Der JavaScript-Teil (src/pkjs/index.js) leitet sie an die
@@ -299,11 +300,11 @@ static void draw_warn_icons(GContext *ctx, int x, int y, bool big) {
   if (!s_bt_connected) x += draw_bt_off_icon(ctx, GPoint(x, y), big) + 6;
   if (battery_low())   draw_battery_low_icon(ctx, GPoint(x, y), big);
 }
-// ── Layout (beim Build gewählt, siehe wscript: LAYOUT=hero|bento|pixel) ─────
+// ── Layout (beim Build gewählt, siehe wscript: LAYOUT=hero|bento|pixel|saeulen)
 //
 // Jede Layout-Datei liefert canvas_update(), layout_init() und layout_deinit()
 // und nutzt Zustand und Zeichenhilfen von oben.
-#if defined(LAYOUT_PIXEL)
+#if defined(LAYOUT_PIXEL) || defined(LAYOUT_SAEULEN)
   #include "layout_pixel.h"
 #elif defined(LAYOUT_BENTO)
   #include "layout_bento.h"

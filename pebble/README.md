@@ -14,7 +14,7 @@ unbedenklich. Die Antwort enthält außerdem die Tagesbilanz (`uebrig`,
 
 ## `watchface/` – Ziffernblatt „Kalorien Schritte“
 
-Drei Layouts, die Sync-Logik ist gemeinsam (`src/c/main.c`); das Layout wird
+Vier Layouts, die Sync-Logik ist gemeinsam (`src/c/main.c`); das Layout wird
 beim Bauen gewählt (siehe unten). Beide haben dieselbe App-ID – wer eine
 Variante installiert, ersetzt die andere, der API-Key bleibt.
 
@@ -37,6 +37,10 @@ mit Sync-Status rechts oben.
 LED-Punktraster untereinander, rechts eine Säule aus 14 Segmenten, die sich bis
 10.000 Schritte füllt, darunter die Schritte („8,4k“); unten links die
 Aktivkalorien des Tages bzw. ein Sync-Fehler.
+
+**Säulen** (Variante von Pixel, ebenfalls `layout_pixel.h`) – zusätzlich eine
+zweite Säule für **noch übrig**: voll am Morgen, leert sich mit jedem Eintrag,
+über dem Ziel komplett orange; darunter der Wert in kcal.
 
 Alle Kalorienwerte sind so aktuell wie der letzte Sync (höchstens eine
 Stunde alt). Das Ziffernblatt sendet außerdem jedes Mal, wenn es neu startet –
@@ -93,6 +97,7 @@ Mit dem Pebble-SDK (`uv tool install pebble-tool`, `pebble sdk install latest`):
 cd watchface && pebble build    # → build/watchface.pbw (Hero-Balken)
 cd watchface && LAYOUT=bento pebble build    # → Layout „Bento“
 cd watchface && LAYOUT=pixel pebble build    # → Layout „Pixel“
+cd watchface && LAYOUT=saeulen pebble build  # → Layout „Säulen“
 cd sync-app  && pebble build    # → build/sync-app.pbw
 ```
 
