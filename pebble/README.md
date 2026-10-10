@@ -14,7 +14,11 @@ unbedenklich. Die Antwort enthält außerdem die Tagesbilanz (`uebrig`,
 
 ## `watchface/` – Ziffernblatt „Kalorien Schritte“
 
-Layout „Hero-Balken“ – die Heute-Seite der App im Kleinformat:
+Zwei Layouts, die Sync-Logik ist gemeinsam (`src/c/main.c`); das Layout wird
+beim Bauen gewählt (siehe unten). Beide haben dieselbe App-ID – wer eine
+Variante installiert, ersetzt die andere, der API-Key bleibt.
+
+**Hero-Balken** (Standard, `layout_hero.h`) – die Heute-Seite der App im Kleinformat:
 
 - oben **Uhrzeit**, rechts daneben das **Datum** zweizeilig (Wochentag / Tag + Monat;
   Warnsymbole links neben dem Wochentag)
@@ -23,6 +27,11 @@ Layout „Hero-Balken“ – die Heute-Seite der App im Kleinformat:
 - **Tagesbalken** wie auf „Heute“: gegessen (Limette), Rest (grau), Bonus aus
   Bewegung (schraffiert), über dem Ziel (orange); darunter „gegessen“ und „Ziel“
 - unten **Schritte** │ **Aktiv** (Aktivkalorien des Tages)
+
+**Pixel** (`layout_pixel.h`) – Stunden (weiß) und Minuten (Limette) als
+LED-Punktraster untereinander, rechts eine Säule aus 14 Segmenten, die sich bis
+10.000 Schritte füllt, darunter die Schritte („8,4k“); unten links die
+Aktivkalorien des Tages bzw. ein Sync-Fehler.
 
 Alle Kalorienwerte sind so aktuell wie der letzte Sync (höchstens eine
 Stunde alt). Das Ziffernblatt sendet außerdem jedes Mal, wenn es neu startet –
@@ -76,7 +85,8 @@ bei Apps aus dem Pebble-App-Store.
 Mit dem Pebble-SDK (`uv tool install pebble-tool`, `pebble sdk install latest`):
 
 ```
-cd watchface && pebble build    # → build/watchface.pbw
+cd watchface && pebble build    # → build/watchface.pbw (Hero-Balken)
+cd watchface && LAYOUT=pixel pebble build    # → Layout „Pixel“
 cd sync-app  && pebble build    # → build/sync-app.pbw
 ```
 

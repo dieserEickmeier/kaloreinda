@@ -33,6 +33,8 @@ def build(ctx):
     for platform in ctx.env.TARGET_PLATFORMS:
         ctx.env = ctx.all_envs[platform]
         ctx.set_group(ctx.env.PLATFORM_NAME)
+        # Layout des Ziffernblatts: LAYOUT=hero (Standard) oder LAYOUT=pixel
+        ctx.env.append_value('DEFINES', 'LAYOUT_' + os.environ.get('LAYOUT', 'hero').upper())
         app_elf = '{}/pebble-app.elf'.format(ctx.env.BUILD_DIR)
         ctx.pbl_build(source=ctx.path.ant_glob('src/c/**/*.c'), target=app_elf, bin_type='app')
 
