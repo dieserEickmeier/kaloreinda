@@ -1267,25 +1267,47 @@ function ocrGedrehtesRechteck(ana, punkte, winkel, pad) {
          + `width:${w / ana.w * 100}%;height:${h / ana.h * 100}%;transform:rotate(${winkel}rad);`;
 }
 
+// Box gehört zum Tabelleninhalt: Bezeichnung („Fett“, „- davon Zucker“) oder
+// reiner Zahlenwert („32g“, „2276 kJ/“, „0,25 g“). Zutaten- oder Werbetext,
+// der neben der Tabelle in dieselben Zeilen fällt, passt auf keins von beiden.
+const OCR_WERT_BOX_RE = /^[\s\-–~<>]*\d[\d.,\s]*(?:m?g|k\s?j|k\s?cal)?\s*\/?\s*$/i;
+const ocrIstTabellenBox = t => OCR_BEGRIFF_ANFANG_RE.test(t) || OCR_WERT_BOX_RE.test(t) || ocrIstTabellenZeile(t);
+
 function ocrBoxenZeigen(ana) {
     const el = document.getElementById('ocrBoxen');
     const wertZeilen = ana.werte.zeilen || {};
     const bereich = ocrTabelleFinden(ana.zeilen, wertZeilen);
-    // Ober-/Unterkante einer Zeile entlang ihrer Mittellinie
-    const kanten = (m, f) => [[m.x1, m.y1 - m.h * f], [m.x2, m.y2 - m.h * f],
-                              [m.x1, m.y1 + m.h * f], [m.x2, m.y2 + m.h * f]];
     let html = '';
     if (bereich) {
-        const ms = ana.zeilen.slice(bereich[0], bereich[1] + 1).map(z => z.mitte);
-        const winkel = Math.atan2(ms[0].y2 - ms[0].y1, ms[0].x2 - ms[0].x1);
-        const pad = Math.min(...ms.map(m => m.h)) * 0.6;
-        html += `<div class="ocr-tabelle" style="${ocrGedrehtesRechteck(ana, ms.flatMap(m => kanten(m, 0.5)), winkel, pad)}"></div>`;
-    }
-    for (const [feld, idx] of Object.entries(wertZeilen)) {
-        const m = ana.zeilen[idx]?.mitte;
-        if (!m) continue;
-        const winkel = Math.atan2(m.y2 - m.y1, m.x2 - m.x1);
-        html += `<div class="ocr-zeile" data-feld="${feld}" style="${ocrGedrehtesRechteck(ana, kanten(m, 0.5), winkel, m.h * 0.25)}"></div>`;
+        const tabZeilen = ana.zeilen.slice(bereich[0], bereich[1] + 1);
+        // Spaltenbereich der Tabelle aus den Tabellen-Boxen; Boxen außerhalb
+        // (z.B. Zutatenliste rechts daneben) bleiben unberücksichtigt
+        const tabBoxen = tabZeilen.flatMap(z => z.boxen).filter(b => ocrIstTabellenBox(b.text));
+        const xMin = tabBoxen.length ? Math.min(...tabBoxen.map(b => b.x)) : -Infinity;
+        const xMax = tabBoxen.length ? Math.max(...tabBoxen.map(b => b.x + b.w)) : Infinity;
+        // Teil einer Zeile innerhalb der Spalten, entlang ihrer Mittellinie
+        const ausschnitt = z => {
+            const bs = z.boxen.filter(b => b.x + b.w / 2 >= xMin && b.x + b.w / 2 <= xMax);
+            if (!bs.length) return null;
+            const m = z.mitte, steig = (m.y2 - m.y1) / (m.x2 - m.x1 || 1);
+            const x1 = Math.min(...bs.map(b => b.x)), x2 = Math.max(...bs.map(b => b.x + b.w));
+            return { x1, y1: m.y1 + steig * (x1 - m.x1), x2, y2: m.y1 + steig * (x2 - m.x1), h: m.h };
+        };
+        const kanten = m => [[m.x1, m.y1 - m.h / 2], [m.x2, m.y2 - m.h / 2],
+                             [m.x1, m.y1 + m.h / 2], [m.x2, m.y2 + m.h / 2]];
+        const ms = tabZeilen.map(ausschnitt).filter(Boolean);
+        if (ms.length) {
+            const winkel = Math.atan2(ms[0].y2 - ms[0].y1, ms[0].x2 - ms[0].x1);
+            const pad = Math.min(...ms.map(m => m.h)) * 0.6;
+            html += `<div class="ocr-tabelle" style="${ocrGedrehtesRechteck(ana, ms.flatMap(kanten), winkel, pad)}"></div>`;
+        }
+        for (const [feld, idx] of Object.entries(wertZeilen)) {
+            if (idx < bereich[0] || idx > bereich[1]) continue;
+            const m = ausschnitt(ana.zeilen[idx]);
+            if (!m) continue;
+            const winkel = Math.atan2(m.y2 - m.y1, m.x2 - m.x1);
+            html += `<div class="ocr-zeile" data-feld="${feld}" style="${ocrGedrehtesRechteck(ana, kanten(m), winkel, m.h * 0.25)}"></div>`;
+        }
     }
     el.classList.remove('alt', 'erkannt');
     el.innerHTML = html;
@@ -1465,7 +1487,7 @@ function ocrZeilenBilden(items) {
         const x1 = Math.min(...teile.map(p => p.x)), x2 = Math.max(...teile.map(p => p.x + p.w));
         return {
             text:  teile.map(p => p.text).join(' '),
-            boxen: teile.map(({ x, y, w, h }) => ({ x, y, w, h })),
+            boxen: teile.map(({ text, x, y, w, h }) => ({ text, x, y, w, h })),
             // Höhe: kleinste Box der Zeile – kurze Wörter sind durch die
             // Schräglage am wenigsten aufgebläht (achsenparallele Boxen)
             mitte: { x1, y1: z.yr + slope * (x1 - minX), x2, y2: z.yr + slope * (x2 - minX),
@@ -1557,7 +1579,9 @@ function parseNaehrwerte(text) {
         result.kcal = kcalWerte[0];
     }
     if (result.kcal !== '') {
-        const i = lines.findIndex(l => /k\s?j|k\s?cal/i.test(l));
+        const mitZahl = lines.findIndex(l => [...l.matchAll(/(\d+(?:\.\d+)?)\s*k\s?cal/gi)]
+            .some(m => parseFloat(m[1]) === result.kcal));
+        const i = mitZahl >= 0 ? mitZahl : lines.findIndex(l => /k\s?j|k\s?cal/i.test(l));
         if (i >= 0) result.zeilen.kcal = i;
     }
 
