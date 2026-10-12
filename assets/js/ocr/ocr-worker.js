@@ -6,7 +6,7 @@
 // Nachrichten:
 //   → {typ:'init', version, model, wasmPaths}      ← {typ:'bereit'}
 //   → {typ:'scan', id, bitmap}  (ImageBitmap, transferiert)
-//                                                  ← {typ:'ergebnis', id, items}
+//                                                  ← {typ:'ergebnis', id, items}  (inkl. konf)
 //   ← {typ:'fehler', id?, msg}
 let svc = null;
 
@@ -28,11 +28,15 @@ self.onmessage = async (e) => {
             const c = new OffscreenCanvas(bmp.width, bmp.height);
             c.getContext('2d').drawImage(bmp, 0, 0);
             bmp.close();
-            const res = await svc.recognize(c, { flatten: true });
+            // minimumConfidence 0: alle Textstellen inkl. Konfidenz zurück, gefiltert
+            // wird in log.php (die Bibliothek bewertet Zeilen stapelweise, ihr
+            // Standardfilter 0,5 wirft sonst ganze Zeilengruppen weg)
+            const res = await svc.recognize(c, { flatten: true, minimumConfidence: 0 });
             self.postMessage({
                 typ: 'ergebnis', id: m.id,
                 items: res.results.map(r => ({
                     text: r.text, x: r.box.x, y: r.box.y, w: r.box.width, h: r.box.height,
+                    konf: r.confidence,
                 })),
             });
         }

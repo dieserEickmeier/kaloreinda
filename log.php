@@ -989,7 +989,7 @@ document.getElementById('ddManuell').addEventListener('click', openManualModal);
 // (nur WASM-Backend), per esbuild als IIFE gebaut (globalThis.PpuOcr). Modelle
 // und ORT-WASM liegen lokal – ohne wasmPaths käme die WASM-Datei von jsDelivr.
 // Bei einem Update alle Dateien gemeinsam ersetzen und OCR_ASSET_VERSION erhöhen.
-const OCR_ASSET_VERSION = 'ppu6.6.1-ort1.30.0-v6tiny-w1';
+const OCR_ASSET_VERSION = 'ppu6.6.1-ort1.30.0-v6tiny-w2';
 const OCR_MODEL = {
     detection:            '/assets/models/PP-OCRv6_tiny_det.ort',
     recognition:          '/assets/models/PP-OCRv6_tiny_rec.ort',
@@ -1110,8 +1110,8 @@ const ocrEngine = {
                 this.worker.postMessage({ typ: 'scan', id, bitmap }, [bitmap]);
             });
         }
-        const res = await this.svc.recognize(canvas, { flatten: true });
-        return res.results.map(r => ({ text: r.text, x: r.box.x, y: r.box.y, w: r.box.width, h: r.box.height }));
+        const res = await this.svc.recognize(canvas, { flatten: true, minimumConfidence: 0 });
+        return res.results.map(r => ({ text: r.text, x: r.box.x, y: r.box.y, w: r.box.width, h: r.box.height, konf: r.confidence }));
     },
 };
 
@@ -1207,10 +1207,15 @@ async function ocrAnalyzeFrame() {
                        0, 0, canvas.width, canvas.height);
 
     // 3. OCR: Detection + Recognition, flach mit Boxen
-    const items  = (await ocrEngine.scan(canvas)).filter(i => i.text.trim());
+    // Konfidenz-Filter hier statt in der Bibliothek: Die bewertet Zeilen
+    // stapelweise (mehrere Zeilen teilen sich einen Wert) – mit ihrem Standard
+    // 0,5 fielen auf dem iPhone ganze Tabellenhälften weg. 0,2 hält echte
+    // Lesungen, wirft Rauschen (≈ 0–0,1) raus.
+    const roh    = (await ocrEngine.scan(canvas)).filter(i => i.text.trim());
+    const items  = roh.filter(i => i.konf === undefined || i.konf >= OCR_MIN_KONF);
     const zeilen = ocrZeilenBilden(items);
     const werte  = parseNaehrwerte(zeilen.map(z => z.text).join('\n'));
-    return { werte, zeilen, items, canvas, w: canvas.width, h: canvas.height };
+    return { werte, zeilen, items, roh, canvas, w: canvas.width, h: canvas.height };
 }
 
 // ── Erkennungs-Overlay ───────────────────────────────────────────────────
@@ -1354,10 +1359,12 @@ function ocrChipsSetzen(werte) {
 //   · eine Kombination aus Kandidaten mit je ≥ 2 Stimmen, deren Werte
 //     zueinander passen (4·E + 4·KH + 9·F ≈ kcal) – bei mehreren die mit den
 //     meisten Stimmen. Das löst auch Gleichstände wie Eiweiß „49“ vs. „4,9“.
-//   · sonst ≥ 3 Stimmen je Feld mit klarem Vorsprung (für Produkte, bei denen
+//   · sonst ≥ 3 Stimmen je Feld, doppelt so viele wie der Zweite und ≤ 25 %
+//     Abweichung (für Produkte, bei denen
 //     die Faustformel nicht passt, z.B. viel Ballaststoffe/Zuckeralkohol).
 // werte: je Feld der Favorit (bei Gleichstand der zuletzt gelesene) – für die Chips.
 const OCR_FENSTER = 20;
+const OCR_MIN_KONF = 0.2;
 function ocrKonsens(verlauf) {
     const fenster = verlauf.slice(-OCR_FENSTER);
     const werte = {}, rang = {};
@@ -1389,14 +1396,20 @@ function ocrKonsens(verlauf) {
     }
     if (beste) return { werte: { ...werte, ...beste.w }, bestaetigt: true };
 
+    // ohne enge Plausibilität nur bei deutlichem Vorsprung (≥ 3 Stimmen und
+    // mindestens doppelt so viele wie der Zweitplatzierte) und grob passend
+    // (≤ 25 %: Ballaststoffe/Zuckeralkohole verschieben die Faustformel um
+    // höchstens ~20 %; „KH 8“ statt 33 beim Ketchup wären 75 %)
     const klar = OCR_FELDER.every(k => rang[k].length && rang[k][0][1].n >= 3
-                                       && rang[k][0][1].n > (rang[k][1]?.[1].n ?? 0));
-    return { werte, bestaetigt: klar };
+                                       && rang[k][0][1].n >= 2 * (rang[k][1]?.[1].n ?? 0));
+    return { werte, bestaetigt: klar && ocrPlausibel(werte, 0.25) };
 }
 
-function ocrPlausibel(p) {
+// Echte Packungen weichen ≤ 4 % ab (Lindt, Nutella, Haribo, Ketchup …); 15 %
+// ließ eine verrutschte Lesung durch (Nutella mit „Eiweiß 56,3“: 9 %).
+function ocrPlausibel(p, toleranz = 0.08) {
     const berechnet = 4 * p.eiweiss + 4 * p.kh + 9 * p.fett;
-    return Math.abs(berechnet - p.kcal) <= Math.max(20, p.kcal * 0.15);
+    return Math.abs(berechnet - p.kcal) <= Math.max(12, p.kcal * toleranz);
 }
 
 async function ocrLiveLoop() {
@@ -1453,7 +1466,9 @@ async function ocrLiveLoop() {
             const r = v => Math.round(v);
             ocrLog('frame', {
                 ms: r(performance.now() - t0), w: ana.w, h: ana.h,
-                items: ana.items.map(i => [i.text, r(i.x), r(i.y), r(i.w), r(i.h)]),
+                items: ana.items.map(i => [i.text, r(i.x), r(i.y), r(i.w), r(i.h), +(i.konf ?? 1).toFixed(2)]),
+                unter05: ana.items.filter(i => i.konf < 0.5).length,
+                verworfen: ana.roh.filter(i => !(i.konf >= OCR_MIN_KONF)).map(i => [i.text, +(i.konf ?? 0).toFixed(2)]),
                 zeilen: ana.zeilen.map(z => z.text),
                 tabelle: ocrTabelleFinden(ana.zeilen, p.zeilen),
                 werte: p, konsens, komplett,
