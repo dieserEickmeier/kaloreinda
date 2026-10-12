@@ -1400,7 +1400,44 @@ function ocrChipsSetzen(werte) {
 const OCR_FENSTER = 12;   // 16+ mischte bei Packungswechsel Werte zweier Produkte
 const OCR_MIN_KONF = 0.2;
 function ocrKonsens(verlauf) {
-    const fenster = verlauf.slice(-OCR_FENSTER);
+    let fenster = verlauf.slice(-OCR_FENSTER);
+
+    // Packungswechsel innerhalb eines Scans: Lesen die beiden jüngsten Bilder
+    // mit kcal denselben Wert und ein älteres Bild einen deutlich anderen
+    // (> 5 %, kleinere Abweichungen wie 540/541 sind Lesefehler), gilt nur der
+    // Teil danach – sonst mischt die Abstimmung Werte zweier Produkte (Cracker
+    // „Fett 2,8“ + Bonbon-Werte ergab 4,8 % und ging als plausibel durch).
+    const mitKcal = fenster.map((q, i) => [q.kcal, i]).filter(([v]) => v !== '' && v !== undefined);
+    if (mitKcal.length >= 2) {
+        const [v1] = mitKcal[mitKcal.length - 1], [v2] = mitKcal[mitKcal.length - 2];
+        if (v1 === v2) {
+            const anders = mitKcal.filter(([v]) => Math.abs(v - v1) > Math.max(3, v1 * 0.05)).pop();
+            if (anders) fenster = fenster.slice(anders[1] + 1);
+        }
+    }
+
+    // Schnellweg: Ein einzelnes Bild genügt, wenn es alle vier Werte enthält,
+    // die Rechnung sehr genau aufgeht (≤ 2 %, mind. 8 kcal) und keine frühere
+    // Lesung im Fenster einem der Werte widerspricht. Echte Packungen liegen
+    // bei 0,6–1,4 % (Ketchup 3 % → geht den normalen Weg). Nachgespielt an 20
+    // echten Scans: 11 im Schnitt 2,3 Analysen früher, keine falsche Übernahme
+    // (ohne die Widerspruchsprüfung kam „Wellnuss mit KH 47“ bei 3 % durch).
+    const p = fenster[fenster.length - 1];
+    if (p && OCR_FELDER.every(k => p[k] !== '' && p[k] !== undefined)) {
+        const berechnet = 4 * p.eiweiss + 4 * p.kh + 9 * p.fett;
+        const genau = Math.abs(berechnet - p.kcal) <= Math.max(8, p.kcal * 0.02);
+        const widerspruch = fenster.slice(0, -1).some(q =>
+            OCR_FELDER.some(k => q[k] !== '' && q[k] !== undefined && q[k] !== p[k]));
+        if (genau && !widerspruch) {
+            const werte = Object.fromEntries([...OCR_FELDER, 'portion'].map(k => [k, p[k]]));
+            if (werte.portion === '') {
+                const pt = fenster.map(q => q.portion).filter(v => v !== '' && v !== undefined);
+                if (pt.length) werte.portion = pt[pt.length - 1];
+            }
+            return { werte, bestaetigt: true };
+        }
+    }
+
     const werte = {}, rang = {};
     for (const k of [...OCR_FELDER, 'portion']) {
         const z = new Map();                        // Wert → { n, zuletzt }
@@ -1421,7 +1458,9 @@ function ocrKonsens(verlauf) {
             if (i === OCR_FELDER.length) {
                 const w = Object.fromEntries(OCR_FELDER.map((k, j) => [k, wahl[j][0]]));
                 const n = wahl.reduce((s, [, e]) => s + e.n, 0);
-                if (ocrPlausibel(w) && (!beste || n > beste.n)) beste = { w, n };
+                const abw = Math.abs(4 * w.eiweiss + 4 * w.kh + 9 * w.fett - w.kcal);
+                // meiste Stimmen; bei Gleichstand die genauer passende Kombination
+                if (ocrPlausibel(w) && (!beste || n > beste.n || (n === beste.n && abw < beste.abw))) beste = { w, n, abw };
                 return;
             }
             for (const c of kand[i]) kombi(i + 1, [...wahl, c]);
@@ -1458,7 +1497,7 @@ async function ocrLiveLoop() {
         document.getElementById('ocrBoxen').classList.add('erkannt');
         ocrSta.textContent = '✓ Erkannt';
         dot.style.animation = '';
-        await warte(450);
+        await warte(250);
         if (!aktiv()) return;             // inzwischen geschlossen/„Selbst eintragen“
         ocrLogEnde('automatisch', werte);
         ocrStop();
@@ -1511,7 +1550,9 @@ async function ocrLiveLoop() {
             : (Date.now() - start > 20000 && n < 4)
                 ? 'Tipp: näher ran, gerade halten, Spiegelungen vermeiden'
                 : n ? `Suche Nährwerte… (${n}/4)` : 'Suche Nährwerte…';
-        await warte(200);
+        // keine Pause: nächstes Bild sofort analysieren (die Analyse läuft im
+        // Worker, die Seite bleibt bedienbar); kurz Luft für Rendering/Eingaben
+        await warte(16);
     }
 }
 
