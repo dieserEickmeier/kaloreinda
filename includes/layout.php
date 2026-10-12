@@ -43,7 +43,7 @@ function renderHeader(string $title = APP_NAME, string $activeNav = ''): void {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/space-grotesk@5/index.css">
-    <link rel="stylesheet" href="/assets/css/app.css?v=49">
+    <link rel="stylesheet" href="/assets/css/app.css?v=51">
     <meta name="csrf-token" content="<?= htmlspecialchars(csrfToken()) ?>">
     <script>
     // Hängt den CSRF-Token automatisch an alle schreibenden Requests an die

@@ -1169,31 +1169,77 @@ async function ocrAnalyzeFrame() {
 
 // ── Erkennungs-Overlay ───────────────────────────────────────────────────
 // Der analysierte Ausschnitt ist genau der Scan-Rahmen, OCR-Koordinaten
-// lassen sich daher als Prozentwerte direkt über den Rahmen legen. Dezent:
-// alle gelesenen Textstellen; farbig: die Zeilen, aus denen ein Wert stammt
-// (Farben wie die Chips). Ohne neue Analyse verblassen die Markierungen –
-// sie hinken dem Live-Bild ~1 s hinterher. Farben je Feld: app.css.
+// lassen sich daher als Prozentwerte direkt über den Rahmen legen. Markiert
+// wird nur die Nährwerttabelle (dezenter Rahmen) und darin die Zeilen, aus
+// denen ein Wert stammt (Farben wie die Chips, app.css) – übriger Text auf der
+// Packung bleibt unmarkiert. Beides ist entlang der Schräglage gedreht; ohne
+// neue Analyse verblassen die Markierungen (sie hinken ~1 s hinterher).
 let _ocrBoxenTimer = null;
+
+// Tabellenzeile – an der Form erkannt, nicht an einzelnen Wörtern (sonst
+// zählen Zutatenliste „…, Zucker, Salz“ oder „Hergestellt in … 500 g“ mit):
+//   · beginnt (ggf. nach „davon“) mit einem Nährwert-Begriff und hat eine Zahl
+//     – auch wenn die Einheit verlesen ist („Salz ∩.85 α“), oder
+//   · enthält kJ/kcal oder mindestens zwei Zahlen mit Einheit (Spalten
+//     „pro 100 g“ / „pro Portion“).
+const OCR_BEGRIFF_ANFANG_RE = /^\W*(?:davon\s+)?(?:durchschnittl\w*\s+)?(?:n[äa]hrwert|brennwert|energie|fett|ges[äa]tt|einfach|mehrfach|kohlenh|zucker|eiwei|protein|salz|natrium|ballast|energy|fat|saturate|carbohydrate|sugar|salt|fibre|fiber)/i;
+const ocrIstTabellenZeile = t =>
+    (OCR_BEGRIFF_ANFANG_RE.test(t) && /\d/.test(t))
+    || /\d\s*k\s?(?:j|cal)\b/i.test(t)
+    || (t.match(/\d\s*(?:mg|g)\b/gi) || []).length >= 2;
+
+// Zeilenbereich [von, bis] der Tabelle: zusammenhängende Tabellenzeilen
+// (eine fremde Zeile dazwischen erlaubt); bei mehreren Blöcken gewinnt der
+// mit den meisten Wertzeilen, dann der längste. null = keine Tabelle.
+function ocrTabelleFinden(zeilen, wertZeilen) {
+    const ist = zeilen.map(z => ocrIstTabellenZeile(z.text));
+    const bloecke = [];
+    let von = -1, letzte = -1;
+    ist.forEach((t, i) => {
+        if (!t) return;
+        if (von >= 0 && i - letzte <= 2) { letzte = i; return; }
+        if (von >= 0) bloecke.push([von, letzte]);
+        von = letzte = i;
+    });
+    if (von >= 0) bloecke.push([von, letzte]);
+    const werte = Object.values(wertZeilen || {});
+    const note = ([a, b]) => werte.filter(i => i >= a && i <= b).length * 100 + (b - a);
+    return bloecke.sort((x, y) => note(y) - note(x))[0] || null;
+}
+
+// Gedrehtes Rechteck als Prozent-Style. Punkte in Bildkoordinaten, winkel
+// in rad; die Skalierung Bild→Rahmen ist in x und y gleich, der Winkel bleibt.
+function ocrGedrehtesRechteck(ana, punkte, winkel, pad) {
+    const cos = Math.cos(winkel), sin = Math.sin(winkel);
+    const u = punkte.map(([x, y]) =>  x * cos + y * sin);
+    const v = punkte.map(([x, y]) => -x * sin + y * cos);
+    const u1 = Math.min(...u) - pad, u2 = Math.max(...u) + pad;
+    const v1 = Math.min(...v) - pad, v2 = Math.max(...v) + pad;
+    const uc = (u1 + u2) / 2, vc = (v1 + v2) / 2, w = u2 - u1, h = v2 - v1;
+    const cx = uc * cos - vc * sin, cy = uc * sin + vc * cos;
+    return `left:${(cx - w / 2) / ana.w * 100}%;top:${(cy - h / 2) / ana.h * 100}%;`
+         + `width:${w / ana.w * 100}%;height:${h / ana.h * 100}%;transform:rotate(${winkel}rad);`;
+}
 
 function ocrBoxenZeigen(ana) {
     const el = document.getElementById('ocrBoxen');
-    const pct = (b) => `left:${b.x / ana.w * 100}%;top:${b.y / ana.h * 100}%;`
-                     + `width:${b.w / ana.w * 100}%;height:${b.h / ana.h * 100}%;`;
+    const wertZeilen = ana.werte.zeilen || {};
+    const bereich = ocrTabelleFinden(ana.zeilen, wertZeilen);
+    // Ober-/Unterkante einer Zeile entlang ihrer Mittellinie
+    const kanten = (m, f) => [[m.x1, m.y1 - m.h * f], [m.x2, m.y2 - m.h * f],
+                              [m.x1, m.y1 + m.h * f], [m.x2, m.y2 + m.h * f]];
     let html = '';
-    for (const z of ana.zeilen) for (const b of z.boxen) html += `<div class="ocr-box" style="${pct(b)}"></div>`;
-    // Wertzeilen als entlang der Schräglage gedrehtes Band – ein achsen-
-    // paralleler Kasten würde bei schiefem Etikett in die Nachbarzeile ragen.
-    // Die Skalierung Bild→Rahmen ist in x und y gleich, der Winkel bleibt.
-    for (const [feld, idx] of Object.entries(ana.werte.zeilen || {})) {
+    if (bereich) {
+        const ms = ana.zeilen.slice(bereich[0], bereich[1] + 1).map(z => z.mitte);
+        const winkel = Math.atan2(ms[0].y2 - ms[0].y1, ms[0].x2 - ms[0].x1);
+        const pad = Math.min(...ms.map(m => m.h)) * 0.6;
+        html += `<div class="ocr-tabelle" style="${ocrGedrehtesRechteck(ana, ms.flatMap(m => kanten(m, 0.5)), winkel, pad)}"></div>`;
+    }
+    for (const [feld, idx] of Object.entries(wertZeilen)) {
         const m = ana.zeilen[idx]?.mitte;
         if (!m) continue;
-        const pad = m.h * 0.25;
-        const len = Math.hypot(m.x2 - m.x1, m.y2 - m.y1) + 2 * pad, h = m.h + 2 * pad;
-        const cx = (m.x1 + m.x2) / 2, cy = (m.y1 + m.y2) / 2;
         const winkel = Math.atan2(m.y2 - m.y1, m.x2 - m.x1);
-        html += `<div class="ocr-zeile" data-feld="${feld}" style="`
-              + pct({ x: cx - len / 2, y: cy - h / 2, w: len, h })
-              + `transform:rotate(${winkel}rad);"></div>`;
+        html += `<div class="ocr-zeile" data-feld="${feld}" style="${ocrGedrehtesRechteck(ana, kanten(m, 0.5), winkel, m.h * 0.25)}"></div>`;
     }
     el.classList.remove('alt', 'erkannt');
     el.innerHTML = html;
@@ -1436,12 +1482,17 @@ function parseNaehrwerte(text) {
     const kjMatch    = clean.match(/(\d+(?:\.\d+)?)\s*k\s?j/i);
     const ausKj      = kjMatch ? parseFloat(kjMatch[1]) / 4.184 : null;
     const passt      = v => ausKj === null || Math.abs(v - ausKj) <= Math.max(3, ausKj * 0.05);
+    // Widersprechen sich kcal und kJ, ist einer verlesen (z.B. „2042 kJ“ statt
+    // 1042, oder kcal aus der Portionsspalte). Entschieden wird nach den Makros
+    // (unten, sobald sie bekannt sind); ohne Makros gilt der kJ-Wert.
+    let kcalStrittig = null;
     if (kombiMatch && passt(parseFloat(kombiMatch[2]))) {
         result.kcal = parseFloat(kombiMatch[2]);
     } else if (kcalWerte.some(passt)) {
         result.kcal = kcalWerte.find(passt);
     } else if (ausKj !== null && ausKj <= 900) {
         result.kcal = Math.round(ausKj);
+        if (kcalWerte.length) kcalStrittig = [result.kcal, ...kcalWerte];
     } else if (kcalWerte.length) {
         result.kcal = kcalWerte[0];
     }
@@ -1473,6 +1524,11 @@ function parseNaehrwerte(text) {
             const v = extractNaehrwert(line); if (v !== null) { result.kh = v; result.zeilen.kh = i; }
         }
     });
+
+    if (kcalStrittig && result.eiweiss !== '' && result.fett !== '' && result.kh !== '') {
+        const ausMakros = 4 * result.eiweiss + 4 * result.kh + 9 * result.fett;
+        result.kcal = kcalStrittig.reduce((a, b) => Math.abs(b - ausMakros) < Math.abs(a - ausMakros) ? b : a);
+    }
     return result;
 }
 

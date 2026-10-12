@@ -1130,9 +1130,12 @@ a { color: var(--accent); }
 /* Erkennungs-Overlay im Scan-Rahmen (Positionen in % des Rahmens) */
 .ocr-boxen { position: absolute; inset: -2px; pointer-events: none; transition: opacity .4s; }
 .ocr-boxen.alt { opacity: .25; }
-.ocr-box {
-    position: absolute; border-radius: 3px;
-    border: 1px solid rgba(255,255,255,.55); background: rgba(255,255,255,.08);
+.ocr-tabelle {
+    position: absolute; border-radius: 8px;
+    border: 2px dashed rgba(255,255,255,.95);
+    /* dunkle Kontur innen und außen: sichtbar auf heller wie dunkler Packung */
+    box-shadow: 0 0 0 1.5px rgba(0,0,0,.45), inset 0 0 0 1.5px rgba(0,0,0,.45);
+    transition: border-color .2s;
 }
 .ocr-zeile {
     --c: var(--carb);
@@ -1145,4 +1148,4 @@ a { color: var(--accent); }
 .ocr-zeile[data-feld="eiweiss"] { --c: var(--prot); }
 .ocr-zeile[data-feld="fett"]    { --c: var(--fat); }
 .ocr-boxen.erkannt .ocr-zeile   { --c: var(--accent); }
-.ocr-boxen.erkannt .ocr-box   { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.ocr-boxen.erkannt .ocr-tabelle { border-style: solid; border-color: var(--accent); }
