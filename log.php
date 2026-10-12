@@ -304,6 +304,8 @@ renderHeader('Erfassen', 'log');
                             border-bottom:3px solid var(--carb);border-right:3px solid var(--carb);border-radius:0 0 4px 0;"></div>
                 <!-- Erkennungs-Overlay: gelesene Textstellen + Zeilen der Werte -->
                 <div id="ocrBoxen" class="ocr-boxen"></div>
+                <!-- läuft, solange noch keine Tabelle markiert ist (CSS) -->
+                <div class="ocr-scanlinie"></div>
                 <!-- Hinweistext im Rahmen -->
                 <div style="position:absolute;bottom:.5rem;left:.5rem;right:.5rem;text-align:center;
                             font-size:.7rem;color:rgba(167,139,250,.8);">
@@ -989,7 +991,7 @@ document.getElementById('ddManuell').addEventListener('click', openManualModal);
 // (nur WASM-Backend), per esbuild als IIFE gebaut (globalThis.PpuOcr). Modelle
 // und ORT-WASM liegen lokal – ohne wasmPaths käme die WASM-Datei von jsDelivr.
 // Bei einem Update alle Dateien gemeinsam ersetzen und OCR_ASSET_VERSION erhöhen.
-const OCR_ASSET_VERSION = 'ppu6.6.1-ort1.30.0-v6tiny-w2';
+const OCR_ASSET_VERSION = 'ppu6.6.1-ort1.30.0-v6tiny-w3';
 const OCR_MODEL = {
     detection:            '/assets/models/PP-OCRv6_tiny_det.ort',
     recognition:          '/assets/models/PP-OCRv6_tiny_rec.ort',
@@ -1004,7 +1006,7 @@ let _ocrRunning = false;
 // gespeicherten Werte. Ziel: Fehlerketten an echten Packungen nachvollziehen.
 // Senden ist „fire and forget“ und darf den Scan nie stören.
 const OCR_LOG = <?= (defined('OCR_LOG') && OCR_LOG) ? 'true' : 'false' ?>;
-let _ocrLogSitzung = null, _ocrLogBilder = 0, _ocrLogEnde = false, _ocrLogFormular = false;
+let _ocrLogSitzung = null, _ocrLogBilder = 0, _ocrLogEnde = false, _ocrLogFormular = false, _ocrT0 = 0;
 
 function ocrLog(typ, daten, canvas) {
     if (!OCR_LOG || !_ocrLogSitzung) return;
@@ -1058,7 +1060,7 @@ const ocrEngine = {
             mjs:  '/assets/js/ocr/ort-wasm-simd-threaded.mjs' + v,
             wasm: '/assets/js/ocr/ort-wasm-simd-threaded.wasm' + v,
         };
-        onStatus('Lade OCR-Engine… (einmalig)');
+        onStatus('Lade Texterkennung…');
         if (typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined') {
             try {
                 await this._initWorker(model, wasmPaths);
@@ -1119,44 +1121,77 @@ async function ocrStart() {
     const modal  = document.getElementById('ocrModal');
     const vid    = document.getElementById('ocrVideo');
     const ocrSta = document.getElementById('ocrStatus');
+    const offen  = () => modal.style.display !== 'none';
     modal.style.display = 'flex';
     ocrSta.textContent  = 'Kamera wird gestartet…';
+    _ocrT0 = performance.now();           // Zeitmessung ab Antippen (Protokoll)
     _ocrBester = {};
     _ocrLogSitzung = null;
     ocrChipsSetzen({});
+    try { localStorage.setItem('kt_ocr_genutzt', '1'); } catch (e) {}
 
-    // OCR-Engine laden (lazy: ~100 KB Skript, ~14 MB ORT-WASM, ~6 MB
-    // Modelle – nur beim ersten Öffnen, danach Browser-Cache)
+    // Kamera und OCR-Engine parallel starten: das Kamerabild ist sofort da,
+    // statt erst nach dem Laden der Engine (~100 KB Skript, ~14 MB ORT-WASM,
+    // ~6 MB Modelle; nach dem ersten Mal aus dem Browser-Cache, siehe auch
+    // ocrVorladen).
+    const engine = ocrEngine.init(t => { if (!_ocrRunning && offen()) ocrSta.textContent = t; });
+    engine.catch(() => {});               // Fehler wird unten behandelt
+    let tKamera, tEngine;
     try {
-        await ocrEngine.init(t => { ocrSta.textContent = t; });
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment', width: {ideal:1920}, height: {ideal:1080} }
+        });
+        if (!offen()) { stream.getTracks().forEach(t => t.stop()); return; }   // inzwischen geschlossen
+        _ocrStream = stream;
+        vid.srcObject = stream;
+        vid.setAttribute('playsinline', '');
+        vid.setAttribute('autoplay', '');
+        vid.muted = true;
+        await vid.play().catch(e => console.warn('[OCR] play()', e));
+        tKamera = performance.now() - _ocrT0;
+    } catch(e) {
+        ocrSta.textContent = 'Kamera-Fehler: ' + e.message;
+        return;
+    }
+    if (!offen()) { ocrStop(); return; }
+
+    try {
+        let fertig = false;
+        engine.then(() => { fertig = true; });
+        await Promise.resolve();
+        if (!fertig) ocrSta.textContent = 'Lade Texterkennung…';
+        await engine;
+        tEngine = performance.now() - _ocrT0;
     } catch(e) {
         ocrSta.textContent = 'Fehler: ' + e.message;
         console.error('[OCR]', e);
         return;
     }
-    if (modal.style.display === 'none') return;   // während des Ladens geschlossen
+    if (!offen() || !_ocrStream) { ocrStop(); return; }
 
-    try {
-        _ocrStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width: {ideal:1920}, height: {ideal:1080} }
-        });
-        vid.srcObject = _ocrStream;
-        vid.setAttribute('playsinline', '');
-        vid.setAttribute('autoplay', '');
-        vid.muted = true;
-        await vid.play().catch(e => console.warn('[OCR] play()', e));
-        if (modal.style.display === 'none') { ocrStop(); return; }
-        const fr = document.getElementById('ocrFrame').getBoundingClientRect();
-        ocrLogStart({
-            ua: navigator.userAgent, engine: ocrEngine.worker ? 'worker' : 'haupt-thread',
-            version: OCR_ASSET_VERSION, video: [vid.videoWidth, vid.videoHeight],
-            fenster: [innerWidth, innerHeight, devicePixelRatio], rahmen: [fr.width, fr.height],
-        });
-        _ocrRunning = true;
-        ocrLiveLoop();
-    } catch(e) {
-        ocrSta.textContent = 'Kamera-Fehler: ' + e.message;
-    }
+    const fr = document.getElementById('ocrFrame').getBoundingClientRect();
+    ocrLogStart({
+        ua: navigator.userAgent, engine: ocrEngine.worker ? 'worker' : 'haupt-thread',
+        version: OCR_ASSET_VERSION, video: [vid.videoWidth, vid.videoHeight],
+        fenster: [innerWidth, innerHeight, devicePixelRatio], rahmen: [fr.width, fr.height],
+        zeiten: { kamera: Math.round(tKamera), engine: Math.round(tEngine), vorgeladen: _ocrVorgeladen },
+    });
+    _ocrRunning = true;
+    ocrLiveLoop();
+}
+
+// Engine vorladen, wenn der Nährwertscan schon einmal benutzt wurde: Die Seite
+// lädt nach jedem Speichern neu, ohne Vorladen kostet jeder Scan beim Antippen
+// das Initialisieren. Wer den Scan nie nutzt, lädt nichts.
+let _ocrVorgeladen = false;
+function ocrVorladen() {
+    let genutzt = false;
+    try { genutzt = localStorage.getItem('kt_ocr_genutzt') === '1'; } catch (e) {}
+    if (!genutzt) return;
+    setTimeout(() => {
+        _ocrVorgeladen = true;
+        ocrEngine.init(() => {}).catch(e => console.warn('[OCR] Vorladen', e));
+    }, 800);
 }
 
 // Berechnet welcher Ausschnitt des nativen Videobilds dem sichtbaren
@@ -1465,7 +1500,7 @@ async function ocrLiveLoop() {
         if (OCR_LOG) {
             const r = v => Math.round(v);
             ocrLog('frame', {
-                ms: r(performance.now() - t0), w: ana.w, h: ana.h,
+                ms: r(performance.now() - t0), seitStart: r(performance.now() - _ocrT0), w: ana.w, h: ana.h,
                 items: ana.items.map(i => [i.text, r(i.x), r(i.y), r(i.w), r(i.h), +(i.konf ?? 1).toFixed(2)]),
                 unter05: ana.items.filter(i => i.konf < 0.5).length,
                 verworfen: ana.roh.filter(i => !(i.konf >= OCR_MIN_KONF)).map(i => [i.text, +(i.konf ?? 0).toFixed(2)]),
@@ -2215,6 +2250,7 @@ document.getElementById('btnGerichtEintragen').addEventListener('click', async (
 
 loadTopGerichte();
 loadTop5();
+ocrVorladen();
 </script>
 
 <?php renderFooter('log'); ?>

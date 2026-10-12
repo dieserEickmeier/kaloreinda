@@ -1149,3 +1149,15 @@ a { color: var(--accent); }
 .ocr-zeile[data-feld="fett"]    { --c: var(--fat); }
 .ocr-boxen.erkannt .ocr-zeile   { --c: var(--accent); }
 .ocr-boxen.erkannt .ocr-tabelle { border-style: solid; border-color: var(--accent); }
+
+/* Scan-Linie im Nährwert-Rahmen: sofortige Rückmeldung, bis die Tabelle
+   markiert ist (dann übernimmt das Overlay) */
+.ocr-scanlinie {
+    position: absolute; left: 6%; right: 6%; height: 2px; top: 10%;
+    background: linear-gradient(90deg, transparent, var(--carb), transparent);
+    box-shadow: 0 0 10px var(--carb);
+    animation: ocrScan 2.2s ease-in-out infinite alternate;
+    pointer-events: none;
+}
+.ocr-boxen:not(:empty) + .ocr-scanlinie { display: none; }
+@keyframes ocrScan { from { top: 10%; } to { top: 88%; } }

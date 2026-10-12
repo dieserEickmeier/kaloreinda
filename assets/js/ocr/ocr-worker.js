@@ -22,6 +22,15 @@ self.onmessage = async (e) => {
                 session: { executionProviders: ['wasm'] },
             });
             await svc.initialize();
+            // Aufwärmlauf: die erste Inferenz ist deutlich langsamer (WASM-
+            // Kompilierung, Speicher) – lieber jetzt als beim ersten Kamerabild
+            try {
+                const w = new OffscreenCanvas(64, 64);
+                const g = w.getContext('2d');
+                g.fillStyle = '#fff'; g.fillRect(0, 0, 64, 64);
+                g.fillStyle = '#000'; g.fillRect(8, 26, 48, 12);
+                await svc.recognize(w, { flatten: true, minimumConfidence: 0 });
+            } catch (e) { /* optional */ }
             self.postMessage({ typ: 'bereit' });
         } else if (m.typ === 'scan') {
             const bmp = m.bitmap;
