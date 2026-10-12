@@ -254,3 +254,18 @@ ALTER TABLE profil ADD COLUMN IF NOT EXISTS startseite VARCHAR(20) DEFAULT 'heut
 
 -- 12. Schrittlänge für die Schritte-API (NULL = automatisch aus Körpergröße):
 ALTER TABLE profil ADD COLUMN IF NOT EXISTS schrittlaenge_cm DECIMAL(4,1) DEFAULT NULL AFTER startseite;
+
+-- ─── Optional: Diagnose-Protokoll des Nährwertscans ─────────────────────────
+-- Nur genutzt, wenn in config.php define('OCR_LOG', true) gesetzt ist;
+-- api/ocr_log.php legt die Tabelle bei Bedarf auch selbst an.
+CREATE TABLE IF NOT EXISTS ocr_log (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    user_id     INT          NOT NULL,
+    sitzung     VARCHAR(40)  NOT NULL,
+    typ         VARCHAR(20)  NOT NULL,       -- start | frame | ende | gespeichert | verworfen
+    daten       MEDIUMTEXT   NULL,           -- JSON
+    bild        MEDIUMBLOB   NULL,           -- JPEG/PNG des analysierten Ausschnitts (nur bei frame)
+    erstellt_am TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    INDEX idx_sitzung (sitzung),
+    INDEX idx_erstellt (erstellt_am)
+);

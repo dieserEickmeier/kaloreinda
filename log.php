@@ -998,6 +998,45 @@ const OCR_MODEL = {
 let _ocrStream  = null;
 let _ocrRunning = false;
 
+// ── Diagnose-Protokoll (nur wenn OCR_LOG in config.php gesetzt) ──────────
+// Pro Scan-Sitzung: Gerät/Engine, je Analyse Bildausschnitt (JPEG) + gelesene
+// Boxen + Zeilen + Werte + Entscheidung, Ende des Scans und die im Formular
+// gespeicherten Werte. Ziel: Fehlerketten an echten Packungen nachvollziehen.
+// Senden ist „fire and forget“ und darf den Scan nie stören.
+const OCR_LOG = <?= (defined('OCR_LOG') && OCR_LOG) ? 'true' : 'false' ?>;
+let _ocrLogSitzung = null, _ocrLogBilder = 0, _ocrLogEnde = false, _ocrLogFormular = false;
+
+function ocrLog(typ, daten, canvas) {
+    if (!OCR_LOG || !_ocrLogSitzung) return;
+    let bild = null;
+    if (canvas && _ocrLogBilder < 80) {
+        try {
+            const k = Math.min(1, 1200 / canvas.width);
+            const c = document.createElement('canvas');
+            c.width = Math.round(canvas.width * k); c.height = Math.round(canvas.height * k);
+            c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+            bild = c.toDataURL('image/jpeg', 0.85).split(',')[1];
+            _ocrLogBilder++;
+        } catch (e) { /* Bild optional */ }
+    }
+    fetch('/api/ocr_log.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sitzung: _ocrLogSitzung, typ, daten, bild }),
+    }).catch(() => {});
+}
+function ocrLogStart(daten) {
+    if (!OCR_LOG) return;
+    _ocrLogSitzung = new Date().toISOString().slice(0, 19).replace(/[^0-9]/g, '').replace(/^(\d{8})/, '$1-')
+                   + '-' + Math.random().toString(36).slice(2, 8);
+    _ocrLogBilder = 0; _ocrLogEnde = false; _ocrLogFormular = false;
+    ocrLog('start', daten);
+}
+function ocrLogEnde(grund, werte) {
+    if (_ocrLogEnde) return;
+    _ocrLogEnde = true;
+    ocrLog('ende', { grund, werte });
+}
+
 // ── OCR-Engine: bevorzugt im Web Worker (assets/js/ocr/ocr-worker.js), damit
 // die Live-Analyse die Seite nicht einfriert. Ohne Worker-/OffscreenCanvas-
 // Unterstützung oder wenn der Worker nicht startet: direkt auf der Seite.
@@ -1083,6 +1122,7 @@ async function ocrStart() {
     modal.style.display = 'flex';
     ocrSta.textContent  = 'Kamera wird gestartet…';
     _ocrBester = {};
+    _ocrLogSitzung = null;
     ocrChipsSetzen({});
 
     // OCR-Engine laden (lazy: ~100 KB Skript, ~14 MB ORT-WASM, ~6 MB
@@ -1106,6 +1146,12 @@ async function ocrStart() {
         vid.muted = true;
         await vid.play().catch(e => console.warn('[OCR] play()', e));
         if (modal.style.display === 'none') { ocrStop(); return; }
+        const fr = document.getElementById('ocrFrame').getBoundingClientRect();
+        ocrLogStart({
+            ua: navigator.userAgent, engine: ocrEngine.worker ? 'worker' : 'haupt-thread',
+            version: OCR_ASSET_VERSION, video: [vid.videoWidth, vid.videoHeight],
+            fenster: [innerWidth, innerHeight, devicePixelRatio], rahmen: [fr.width, fr.height],
+        });
         _ocrRunning = true;
         ocrLiveLoop();
     } catch(e) {
@@ -1164,7 +1210,7 @@ async function ocrAnalyzeFrame() {
     const items  = (await ocrEngine.scan(canvas)).filter(i => i.text.trim());
     const zeilen = ocrZeilenBilden(items);
     const werte  = parseNaehrwerte(zeilen.map(z => z.text).join('\n'));
-    return { werte, zeilen, w: canvas.width, h: canvas.height };
+    return { werte, zeilen, items, canvas, w: canvas.width, h: canvas.height };
 }
 
 // ── Erkennungs-Overlay ───────────────────────────────────────────────────
@@ -1310,20 +1356,22 @@ async function ocrLiveLoop() {
         dot.style.animation = '';
         await warte(450);
         if (!aktiv()) return;             // inzwischen geschlossen/„Selbst eintragen“
+        ocrLogEnde('automatisch', werte);
         ocrStop();
         showOcrResult(werte, true);
     };
 
     while (aktiv()) {
         if (document.hidden || vid.readyState < 2 || !vid.videoWidth) { await warte(300); continue; }
-        let p;
+        let p, ana, t0 = performance.now();
         try {
-            const ana = await ocrAnalyzeFrame();
+            ana = await ocrAnalyzeFrame();
             if (!aktiv()) return;
             p = ana.werte;
             ocrBoxenZeigen(ana);
         } catch (e) {
             console.warn('[OCR] Analyse', e);
+            ocrLog('frame', { fehler: String(e.message || e) });
             if (!aktiv()) return;
             ocrSta.textContent = '✗ ' + String(e.message || e).slice(0, 60);
             await warte(1500);
@@ -1338,6 +1386,17 @@ async function ocrLiveLoop() {
         const key = komplett ? OCR_FELDER.map(k => p[k]).join('|') : null;
         gleich = key && key === letzterKey ? gleich + 1 : (key ? 1 : 0);
         letzterKey = key;
+        if (OCR_LOG) {
+            const r = v => Math.round(v);
+            ocrLog('frame', {
+                ms: r(performance.now() - t0), w: ana.w, h: ana.h,
+                items: ana.items.map(i => [i.text, r(i.x), r(i.y), r(i.w), r(i.h)]),
+                zeilen: ana.zeilen.map(z => z.text),
+                tabelle: ocrTabelleFinden(ana.zeilen, p.zeilen),
+                werte: p, bester: { ...bester }, komplett, gleich,
+                plausibel: komplett ? ocrPlausibel(p) : null,
+            }, ana.canvas);
+        }
         if (komplett && ((gleich >= 2 && ocrPlausibel(p)) || gleich >= 3)) {
             await uebernehmen({ ...p, portion: p.portion !== '' ? p.portion : (bester.portion ?? '') });
             return;
@@ -1356,6 +1415,7 @@ async function ocrLiveLoop() {
 // auch während die Engine noch lädt; eine laufende Analyse wird verworfen.
 function ocrCapture() {
     const werte = { kcal: '', eiweiss: '', fett: '', kh: '', portion: '', ..._ocrBester };
+    ocrLogEnde('knopf', werte);
     ocrStop();
     showOcrResult(werte, false);
 }
@@ -1555,6 +1615,7 @@ function showOcrResult(parsed, automatisch = false) {
 }
 
 function closeOcrResult() {
+    if (!_ocrLogFormular) { _ocrLogFormular = true; ocrLog('verworfen', null); }
     document.getElementById('ocrResultModal').style.display = 'none';
 }
 
@@ -1576,6 +1637,13 @@ async function ocrSave() {
     const name    = document.getElementById('ocrName').value.trim();
     if (!name)    { showToast('Bitte Produktname eingeben'); document.getElementById('ocrName').focus(); return; }
     if (!kcal100) { showToast('Bitte Kalorien eingeben'); return; }
+
+    // Protokoll: was tatsächlich gespeichert wurde (Vergleich mit der Erkennung)
+    if (!_ocrLogFormular) {
+        _ocrLogFormular = true;
+        ocrLog('gespeichert', Object.fromEntries(['ocrName', 'ocrKcal', 'ocrEiweiss', 'ocrFett', 'ocrKh', 'ocrPortion', 'ocrMenge']
+            .map(id => [id.slice(3).toLowerCase(), document.getElementById(id).value])));
+    }
 
     const btn = document.getElementById('btnOcrSave');
     btn.disabled = true;
@@ -1644,6 +1712,7 @@ async function ocrSave() {
 }
 
 function ocrStop() {
+    if (_ocrRunning) ocrLogEnde('geschlossen', { ..._ocrBester });
     if (typeof scanOverlayHide === 'function') scanOverlayHide();
     _ocrRunning = false;
     _ocrSession++;
