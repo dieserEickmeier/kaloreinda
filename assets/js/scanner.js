@@ -23,16 +23,26 @@ function scanOverlayHide() {
 }
 
 // ── ZXing nachladen ──────────────────────────────────────────────────────
+// zxing-wasm 3.x (IIFE-Reader-Build). Die WASM-Datei liegt lokal neben dem
+// Skript – ohne locateFile-Override würde die Bibliothek sie von jsDelivr laden.
+// Bei einem Update von zxing-wasm beide Dateien gemeinsam ersetzen und ?v= erhöhen.
+const ZXING_ASSET_VERSION = '3.1.5';
 let _zxingLoading = null;
 function loadZxing() {
-    if (typeof ZXingWASM !== 'undefined') return Promise.resolve();
     _zxingLoading ??= new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = '/assets/js/zxing-wasm.js';
+        s.src = '/assets/js/zxing-wasm.js?v=' + ZXING_ASSET_VERSION;
         s.onload = resolve;
-        s.onerror = () => { _zxingLoading = null; reject(new Error('Scanner konnte nicht geladen werden')); };
+        s.onerror = () => reject(new Error('Scanner konnte nicht geladen werden'));
         document.head.appendChild(s);
-    });
+    }).then(() => ZXingWASM.prepareZXingModule({
+        overrides: {
+            locateFile: (path, prefix) => path.endsWith('.wasm')
+                ? '/assets/js/' + path + '?v=' + ZXING_ASSET_VERSION
+                : prefix + path,
+        },
+        fireImmediately: true,
+    })).catch(e => { _zxingLoading = null; throw e; });
     return _zxingLoading;
 }
 
@@ -50,7 +60,11 @@ function scanNichtGefunden(code) {
 
 // Lebensmittel tragen EAN/UPC – nur diese Formate suchen ist schneller und
 // verhindert Fehltreffer durch QR-/DataMatrix-Codes auf der Packung.
-const ZXING_FORMATS = ['EAN-13', 'EAN-8', 'UPC-A', 'UPC-E'];
+const ZXING_FORMATS = ['EAN13', 'EAN8', 'UPCA', 'UPCE'];
+const ZXING_OPTIONS = {
+    formats: ZXING_FORMATS, tryHarder: true, tryRotate: true, tryInvert: true,
+    maxNumberOfSymbols: 1,   // ein Treffer reicht, spart Rechenzeit pro Frame
+};
 
 // Auszuwertender Bildbereich in Video-Koordinaten: volle Breite, vertikal ein
 // großzügiges Band um den sichtbaren Rahmen (Barcodes werden selten exakt im
@@ -101,13 +115,11 @@ async function zxingStart() {
 
     sta.textContent = 'Kamera wird gestartet…';
 
-    // WASM bei jedem Start frisch initialisieren – stellt sicher dass
-    // das Modul nach einem vorherigen Stop noch korrekt arbeitet
+    // Bibliothek + WASM-Modul laden (einmalig, danach gecacht)
     try {
         await loadZxing();
-        await ZXingWASM.readBarcodesFromImageData(new ImageData(1, 1), {formats: ZXING_FORMATS});
     } catch(e) {
-        sta.textContent = 'WASM Fehler: ' + e.message;
+        sta.textContent = 'Scanner-Fehler: ' + (e.message || e);
         return;
     }
 
@@ -135,9 +147,8 @@ async function zxingStart() {
                 if (canvas.height !== ch) canvas.height = ch;
                 ctx.drawImage(vid, reg.x, reg.y, reg.w, reg.h, 0, 0, cw, ch);
                 try {
-                    const results = await ZXingWASM.readBarcodesFromImageData(
-                        ctx.getImageData(0, 0, cw, ch),
-                        {formats: ZXING_FORMATS, tryHarder: true, tryRotate: true, tryInvert: true}
+                    const results = await ZXingWASM.readBarcodes(
+                        ctx.getImageData(0, 0, cw, ch), ZXING_OPTIONS
                     );
                     if (results && results.length > 0) {
                         const code = results[0].text;

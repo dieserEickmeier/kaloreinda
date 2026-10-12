@@ -118,7 +118,7 @@ kalorientracker/
 - **Mehrbenutzerfähig** – Session-basierte Anmeldung, alle Daten pro Nutzer getrennt
 - **Erfassen per Scan**:
   - **Live-Scan** via ZXing (WASM, kontinuierlicher Kamera-Stream, EAN/UPC)
-  - **Nährwerttabelle scannen** → PaddleOCR (lokal im Browser) liest kcal, Makros und Portionsgröße aus
+  - **Nährwerttabelle scannen** → PaddleOCR (PP-OCRv6 tiny, lokal im Browser) liest kcal, Makros und Portionsgröße aus
   - **Unbekannter Barcode** → direkt per Nährwert-Scan oder manuell anlegen, der Barcode wird mitgespeichert
 - **Manuelle Barcode-Eingabe** als zusätzlicher Fallback
 - **Automatischer Cache** – gescannte Produkte werden lokal gespeichert; OpenFoodFacts-Treffer
@@ -131,6 +131,34 @@ kalorientracker/
 - **BMR/TDEE-Berechnung** nach Mifflin-St-Jeor mit Aktivitätsfaktoren (inkl. "tracking" für Smartwatch-Nutzer)
 - **Gewichtsverlauf** mit Chart.js-Diagramm
 - **Dark Mode** optimiert für Smartphone-Nutzung, PWA-fähig (Home-Bildschirm-Installation)
+
+## Scan-Bibliotheken aktualisieren
+
+Alle Scan-Dateien liegen lokal unter `assets/` (kein CDN zur Laufzeit).
+
+**Barcode – [zxing-wasm](https://github.com/Sec-ant/zxing-wasm)** (aktuell 3.1.5, MIT)
+`dist/iife/reader/index.js` → `assets/js/zxing-wasm.js`, `dist/reader/zxing_reader.wasm` → `assets/js/zxing_reader.wasm`,
+dann `ZXING_ASSET_VERSION` in `assets/js/scanner.js` anpassen.
+
+**Nährwerte – [ppu-paddle-ocr](https://github.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr)** (6.6.1, MIT) mit
+onnxruntime-web (1.30.0, MIT, nur WASM-Backend) und PP-OCRv6 tiny (Apache 2.0). Bundle bauen:
+
+```bash
+npm install ppu-paddle-ocr@6.6.1 onnxruntime-web@1.30.0 esbuild
+cat > entry.js <<'JS'
+import * as ort from "onnxruntime-web";
+import { PaddleOcrService } from "ppu-paddle-ocr/web";
+window.PpuOcr = { PaddleOcrService, ort };
+JS
+echo 'export * from "./node_modules/onnxruntime-web/dist/ort.wasm.min.mjs";' > ort-shim.js
+npx esbuild entry.js --bundle --minify --format=iife --target=es2020,safari16 \
+    --alias:onnxruntime-web=./ort-shim.js --outfile=assets/js/ocr/ppu-ocr.js
+cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.{mjs,wasm} assets/js/ocr/
+```
+
+Modelle (`PP-OCRv6_tiny_det.ort`, `PP-OCRv6_tiny_rec.ort`, `ppocrv6_tiny_dict.txt`) von
+[huggingface.co/snowfluke/ppu-paddle-ocr-models](https://huggingface.co/snowfluke/ppu-paddle-ocr-models) nach `assets/models/`.
+Danach `OCR_ASSET_VERSION` in `log.php` erhöhen.
 
 ## Sicherheitshinweise
 

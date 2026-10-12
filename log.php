@@ -976,7 +976,17 @@ document.getElementById('btnOcrScan').addEventListener('click', () => {
 document.getElementById('ddSchnell').addEventListener('click', openSchnellModal);
 document.getElementById('ddManuell').addEventListener('click', openManualModal);
 
-// ── OCR Nährwerte Scanner (PaddleOCR via ONNX Runtime, Beta) ─────────────
+// ── OCR Nährwerte Scanner (ppu-paddle-ocr + PP-OCRv6 tiny, Beta) ─────────
+// Bundle assets/js/ocr/ppu-ocr.js = ppu-paddle-ocr/web + onnxruntime-web
+// (nur WASM-Backend), per esbuild als IIFE gebaut (window.PpuOcr). Modelle
+// und ORT-WASM liegen lokal – ohne wasmPaths käme die WASM-Datei von jsDelivr.
+// Bei einem Update alle Dateien gemeinsam ersetzen und OCR_ASSET_VERSION erhöhen.
+const OCR_ASSET_VERSION = 'ppu6.6.1-ort1.30.0-v6tiny';
+const OCR_MODEL = {
+    detection:            '/assets/models/PP-OCRv6_tiny_det.ort',
+    recognition:          '/assets/models/PP-OCRv6_tiny_rec.ort',
+    charactersDictionary: '/assets/models/ppocrv6_tiny_dict.txt',
+};
 let _ocrStream  = null;
 let _ocrWorker  = null;
 let _ocrRunning = false;
@@ -989,32 +999,39 @@ async function ocrStart() {
     modal.style.display = 'flex';
     ocrSta.textContent  = 'Kamera wird gestartet…';
 
-    // PaddleOCR initialisieren (Bundle wird lazy geladen – 18MB,
-    // nur beim ersten Öffnen des Scanners, danach Browser-Cache)
+    // OCR-Engine initialisieren (lazy: ~100 KB Skript, ~14 MB ORT-WASM,
+    // ~6 MB Modelle – nur beim ersten Öffnen, danach Browser-Cache)
     if (!_ocrWorker) {
         try {
-            if (typeof PaddleOCR === 'undefined') {
+            if (typeof PpuOcr === 'undefined') {
                 ocrSta.textContent = 'Lade OCR-Engine… (einmalig)';
                 await new Promise((resolve, reject) => {
                     const s = document.createElement('script');
-                    s.src = '/assets/js/paddle-ocr.js?v=4';
+                    s.src = '/assets/js/ocr/ppu-ocr.js?v=' + OCR_ASSET_VERSION;
                     s.onload = resolve;
-                    s.onerror = () => reject(new Error('paddle-ocr.js nicht ladbar'));
+                    s.onerror = () => reject(new Error('OCR-Engine nicht ladbar'));
                     document.head.appendChild(s);
                 });
             }
             // ONNX Runtime: WASM lokal, single-threaded (kein COOP/COEP nötig)
-            ort.env.wasm.wasmPaths = '/assets/js/';
-            ort.env.wasm.numThreads = 1;
+            PpuOcr.ort.env.wasm.wasmPaths  = {
+                mjs:  '/assets/js/ocr/ort-wasm-simd-threaded.mjs?v=' + OCR_ASSET_VERSION,
+                wasm: '/assets/js/ocr/ort-wasm-simd-threaded.wasm?v=' + OCR_ASSET_VERSION,
+            };
+            PpuOcr.ort.env.wasm.numThreads = 1;
 
             ocrSta.textContent = 'Initialisiere Modelle…';
-            _ocrWorker = await PaddleOCR.create({
-                models: {
-                    detectionPath:   '/assets/models/ch_PP-OCRv4_det_infer.onnx',
-                    recognitionPath: '/assets/models/ch_PP-OCRv4_rec_infer.onnx',
-                    dictionaryPath:  '/assets/models/ppocr_keys_v1.txt',
+            const v = '?v=' + OCR_ASSET_VERSION;
+            const svc = new PpuOcr.PaddleOcrService({
+                model: {
+                    detection:            OCR_MODEL.detection + v,
+                    recognition:          OCR_MODEL.recognition + v,
+                    charactersDictionary: OCR_MODEL.charactersDictionary + v,
                 },
+                session: { executionProviders: ['wasm'] },
             });
+            await svc.initialize();
+            _ocrWorker = svc;
             ocrSta.textContent = 'Bereit – Foto aufnehmen';
         } catch(e) {
             ocrSta.textContent = 'Fehler: ' + e.message;
@@ -1086,33 +1103,12 @@ async function ocrAnalyzeFrame() {
     ctx.drawImage(vid, crop.x, crop.y, crop.w, crop.h,
                        0, 0, canvas.width, canvas.height);
 
-    // 3. PaddleOCR: Detection + Recognition
-    const dataUrl = canvas.toDataURL('image/png');
-    const results = await _ocrWorker.detect(dataUrl);
-
-    // 4. Boxen zu Zeilen clustern (kJ/kcal-Kontext erhalten)
-    const items = results
-        .filter(r => r.mean > 0.5)
-        .map(r => ({
-            text: r.text,
-            x: r.box ? r.box[0][0] : 0,
-            y: r.box ? (r.box[0][1] + r.box[2][1]) / 2 : 0,
-            h: r.box ? Math.abs(r.box[2][1] - r.box[0][1]) : 20,
-        }))
-        .sort((a, b) => a.y - b.y);
-
-    const lines = [];
-    for (const item of items) {
-        const last = lines[lines.length - 1];
-        if (last && Math.abs(item.y - last.y) < Math.max(item.h, last.h) * 0.6) {
-            last.parts.push(item);
-        } else {
-            lines.push({ y: item.y, h: item.h, parts: [item] });
-        }
-    }
-    const text = lines
-        .map(l => l.parts.sort((a, b) => a.x - b.x).map(p => p.text).join(' '))
-        .join('\n');
+    // 3. OCR: Detection + Recognition, flach mit Boxen
+    const res = await _ocrWorker.recognize(canvas, { flatten: true });
+    const items = res.results.map(r => ({
+        text: r.text, x: r.box.x, y: r.box.y, w: r.box.width, h: r.box.height,
+    }));
+    const text = ocrZeilenBilden(items).join('\n');
 
     return parseNaehrwerte(text);
 }
@@ -1160,6 +1156,47 @@ async function ocrCapture() {
     }
 }
 
+// ── Zeilen aus OCR-Boxen bilden, tolerant gegen schräg gehaltene Etiketten ──
+// Schon 3–4° Schräglage reichen, dass bei einer breiten Tabelle der Wert
+// rechts auf Höhe der NÄCHSTEN Zeile links landet. Daher zuerst die Steigung
+// schätzen: Boxpaare, die weit auseinander in derselben Zeile liegen, haben
+// alle dieselbe Steigung; Paare aus Nachbarzeilen streuen. Die häufigste
+// Steigung (Histogramm-Spitze) ist die Schräglage. Danach Zeilen entlang
+// dieser Steigung clustern und Boxen in Zeilenrichtung sortieren.
+function ocrZeilenBilden(items) {
+    if (!items.length) return [];
+    const pts = items.map(i => ({ ...i, cx: i.x + i.w / 2, cy: i.y + i.h / 2 }));
+    const minX = Math.min(...pts.map(p => p.x)), maxX = Math.max(...pts.map(p => p.x + p.w));
+    const hMed = [...pts.map(p => p.h)].sort((a, b) => a - b)[Math.floor(pts.length / 2)];
+
+    // Steigungs-Histogramm (Bins à 0,005 ≈ 0,3°, Bereich ±0,15 ≈ ±8,5°)
+    const BIN = 0.005, MAX = 0.15, bins = new Map();
+    for (let i = 0; i < pts.length; i++) for (let j = 0; j < pts.length; j++) {
+        const a = pts[i], b = pts[j], dx = b.cx - a.cx;
+        if (dx < (maxX - minX) * 0.25) continue;
+        const m = (b.cy - a.cy) / dx;
+        if (Math.abs(m) > MAX) continue;
+        const k = Math.round(m / BIN);
+        bins.set(k, (bins.get(k) || 0) + dx);    // weite Paare zählen mehr
+    }
+    let slope = 0, best = 0;
+    for (const [k, wgt] of bins) {
+        const w3 = wgt + (bins.get(k - 1) || 0) * 0.5 + (bins.get(k + 1) || 0) * 0.5;
+        if (w3 > best) { best = w3; slope = k * BIN; }
+    }
+
+    // Entlang der Steigung „geradeziehen“ und zu Zeilen clustern
+    for (const p of pts) p.yr = p.cy - slope * (p.cx - minX);
+    pts.sort((a, b) => a.yr - b.yr);
+    const zeilen = [];
+    for (const p of pts) {
+        const z = zeilen[zeilen.length - 1];
+        if (z && Math.abs(p.yr - z.yr) < hMed * 0.55) { z.teile.push(p); z.yr = (z.yr * (z.teile.length - 1) + p.yr) / z.teile.length; }
+        else zeilen.push({ yr: p.yr, teile: [p] });
+    }
+    return zeilen.map(z => z.teile.sort((a, b) => a.cx - b.cx).map(p => p.text).join(' '));
+}
+
 // OCR-Text normalisieren: deutsches Komma → Punkt, O/o/l zwischen bzw. vor
 // Ziffern → 0/1. Ziffern selbst bleiben unangetastet.
 function normalizeOcrText(text) {
@@ -1193,21 +1230,46 @@ function extractNaehrwert(line) {
     return null;
 }
 
+// Editierabstand (Levenshtein) – für verlesene Bezeichnungen wie „Eieiß“,
+// „Kohientydrate“ oder „Fetl“.
+function editAbstand(a, b) {
+    let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+        const cur = [i];
+        for (let j = 1; j <= b.length; j++) {
+            cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        }
+        prev = cur;
+    }
+    return prev[b.length];
+}
+// Erstes Wort der Zeile (nur Buchstaben) ähnelt einem der Begriffe?
+function zeileBeginntMit(l, begriffe, maxFehler) {
+    const wort = (l.match(/\p{L}+/u) || [''])[0];
+    return wort.length >= 3 && begriffe.some(b => editAbstand(wort, b) <= maxFehler);
+}
+
 function parseNaehrwerte(text) {
     const result = { kcal: '', eiweiss: '', fett: '', kh: '', portion: '' };
     const clean = normalizeOcrText(text);
 
     // ── kcal: explizites „N kcal“ hat Priorität, dann „kJ/kcal 1046/249“,
     // zuletzt nur kJ → umrechnen (÷ 4,184).
-    const kcalMatch  = clean.match(/(\d+(?:\.\d+)?)\s*k\s?cal/i);
+    // Steht ein kJ-Wert da, muss der kcal-Wert dazu passen (± 5 %) – sonst
+    // stammt er z.B. aus der Portionsspalte oder ist verlesen, dann gilt kJ.
+    const kcalWerte  = [...clean.matchAll(/(\d+(?:\.\d+)?)\s*k\s?cal/gi)].map(m => parseFloat(m[1])).filter(v => v <= 900);
     const kombiMatch = clean.match(/kj\s*\/\s*k\s?cal\D{0,15}(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/i);
     const kjMatch    = clean.match(/(\d+(?:\.\d+)?)\s*k\s?j/i);
-    if (kcalMatch && parseFloat(kcalMatch[1]) <= 900) {
-        result.kcal = parseFloat(kcalMatch[1]);
-    } else if (kombiMatch) {
+    const ausKj      = kjMatch ? parseFloat(kjMatch[1]) / 4.184 : null;
+    const passt      = v => ausKj === null || Math.abs(v - ausKj) <= Math.max(3, ausKj * 0.05);
+    if (kombiMatch && passt(parseFloat(kombiMatch[2]))) {
         result.kcal = parseFloat(kombiMatch[2]);
-    } else if (kjMatch) {
-        result.kcal = Math.round(parseFloat(kjMatch[1]) / 4.184);
+    } else if (kcalWerte.some(passt)) {
+        result.kcal = kcalWerte.find(passt);
+    } else if (ausKj !== null && ausKj <= 900) {
+        result.kcal = Math.round(ausKj);
+    } else if (kcalWerte.length) {
+        result.kcal = kcalWerte[0];
     }
 
     // ── Portionsgröße: „pro Portion (30 g)“, „1 Portion = 30 g“, „pro 30 g“
@@ -1219,14 +1281,16 @@ function parseNaehrwerte(text) {
 
     for (const line of clean.split('\n').map(l => l.trim()).filter(Boolean)) {
         const l = line.toLowerCase();
-        if (!result.eiweiss && (l.includes('eiwei') || l.includes('protein'))) {
+        if (!result.eiweiss && (l.includes('eiwei') || l.includes('protein')
+                                || zeileBeginntMit(l, ['eiweiß', 'eiweiss'], 2))) {
             const v = extractNaehrwert(line); if (v !== null) result.eiweiss = v;
         }
-        if (!result.fett && (l.includes('fett') || /\bfat\b/.test(l))
-            && !l.includes('gesättig') && !l.includes('fettsäure') && !l.includes('saturate') && !l.includes('trans')) {
+        if (!result.fett && (l.includes('fett') || /\bfat\b/.test(l) || zeileBeginntMit(l, ['fett'], 1))
+            && !/^\W*davon\b/.test(l) && !/ges[äa]t+ig|fetts[äa]ure|saturate|trans/.test(l)) {
             const v = extractNaehrwert(line); if (v !== null) result.fett = v;
         }
-        if (!result.kh && (l.includes('kohlenh') || l.includes('carbohydrate') || /\bkh\b/.test(l))) {
+        if (!result.kh && (l.includes('kohlenh') || l.includes('carbohydrate') || /\bkh\b/.test(l)
+                           || zeileBeginntMit(l, ['kohlenhydrate'], 3))) {
             const v = extractNaehrwert(line); if (v !== null) result.kh = v;
         }
     }
@@ -1364,6 +1428,11 @@ window.onScanNotFound = (code) => showNotFound(code);
     const code = qs.get('barcode');
     if (!code) return;
     history.replaceState(null, '', location.pathname + (qs.get('pick') ? '?pick=1' : ''));
+    // lookupBarcode braucht das Such-Overlay aus scanner.js (defer) – das ist
+    // erst nach dem Parsen da, dieses Inline-Skript läuft aber schon vorher.
+    if (document.readyState === 'loading') {
+        await new Promise(r => document.addEventListener('DOMContentLoaded', r, { once: true }));
+    }
     lookupBarcode(code);
 })();
 
