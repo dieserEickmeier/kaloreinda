@@ -1324,11 +1324,9 @@ function ocrBoxenLeeren() {
 // ── Live-Erkennung ───────────────────────────────────────────────────────
 // Solange der Scanner offen ist, wird laufend ein Bild analysiert (eins nach
 // dem anderen, ~1/s). Übernommen wird automatisch, sobald kcal, Eiweiß, Fett
-// und KH erkannt sind UND das Ergebnis bestätigt ist: zweimal hintereinander
-// gleich gelesen und zueinander plausibel (4·E + 4·KH + 9·F ≈ kcal) – oder
-// dreimal gleich (z.B. Produkte mit viel Ballaststoffen/Zuckeralkohol, bei
-// denen die Faustformel nicht passt). Bis dahin zeigt der Scanner die bisher
-// gelesenen Werte an. Der Knopf darunter ist ein Ausweg, keine Bestätigung:
+// und KH erkannt sind UND das Ergebnis bestätigt ist (Abstimmung über die
+// letzten Analysen, siehe ocrKonsens). Bis dahin zeigt der Scanner je Feld
+// den bisher häufigsten Wert an. Der Knopf darunter ist ein Ausweg, keine Bestätigung:
 // er öffnet sofort das Formular mit dem bisherigen Stand – geprüft wird dort.
 const OCR_FELDER = ['kcal', 'eiweiss', 'fett', 'kh'];
 const OCR_LABEL  = { kcal: 'kcal', eiweiss: 'Eiweiß', fett: 'Fett', kh: 'KH' };
@@ -1351,6 +1349,51 @@ function ocrChipsSetzen(werte) {
         : '<i class="bi bi-pencil"></i> Selbst eintragen';
 }
 
+// Abstimmung über die letzten Analysen. Jede Lesung eines Feldes zählt als
+// Stimme, auch wenn im selben Bild ein anderes Feld fehlte. Bestätigt ist:
+//   · eine Kombination aus Kandidaten mit je ≥ 2 Stimmen, deren Werte
+//     zueinander passen (4·E + 4·KH + 9·F ≈ kcal) – bei mehreren die mit den
+//     meisten Stimmen. Das löst auch Gleichstände wie Eiweiß „49“ vs. „4,9“.
+//   · sonst ≥ 3 Stimmen je Feld mit klarem Vorsprung (für Produkte, bei denen
+//     die Faustformel nicht passt, z.B. viel Ballaststoffe/Zuckeralkohol).
+// werte: je Feld der Favorit (bei Gleichstand der zuletzt gelesene) – für die Chips.
+const OCR_FENSTER = 20;
+function ocrKonsens(verlauf) {
+    const fenster = verlauf.slice(-OCR_FENSTER);
+    const werte = {}, rang = {};
+    for (const k of [...OCR_FELDER, 'portion']) {
+        const z = new Map();                        // Wert → { n, zuletzt }
+        fenster.forEach((p, i) => {
+            if (p[k] === '' || p[k] === undefined) return;
+            const e = z.get(p[k]) || { n: 0, zuletzt: 0 };
+            e.n++; e.zuletzt = i; z.set(p[k], e);
+        });
+        rang[k] = [...z].sort((a, b) => b[1].n - a[1].n || b[1].zuletzt - a[1].zuletzt);
+        if (rang[k].length) werte[k] = rang[k][0][0];
+    }
+
+    // Plausible Kombination aus Kandidaten mit ≥ 2 Stimmen (je Feld max. 3)
+    const kand = OCR_FELDER.map(k => rang[k].filter(([, e]) => e.n >= 2).slice(0, 3));
+    let beste = null;
+    if (kand.every(l => l.length)) {
+        const kombi = (i, wahl) => {
+            if (i === OCR_FELDER.length) {
+                const w = Object.fromEntries(OCR_FELDER.map((k, j) => [k, wahl[j][0]]));
+                const n = wahl.reduce((s, [, e]) => s + e.n, 0);
+                if (ocrPlausibel(w) && (!beste || n > beste.n)) beste = { w, n };
+                return;
+            }
+            for (const c of kand[i]) kombi(i + 1, [...wahl, c]);
+        };
+        kombi(0, []);
+    }
+    if (beste) return { werte: { ...werte, ...beste.w }, bestaetigt: true };
+
+    const klar = OCR_FELDER.every(k => rang[k].length && rang[k][0][1].n >= 3
+                                       && rang[k][0][1].n > (rang[k][1]?.[1].n ?? 0));
+    return { werte, bestaetigt: klar };
+}
+
 function ocrPlausibel(p) {
     const berechnet = 4 * p.eiweiss + 4 * p.kh + 9 * p.fett;
     return Math.abs(berechnet - p.kcal) <= Math.max(20, p.kcal * 0.15);
@@ -1364,8 +1407,8 @@ async function ocrLiveLoop() {
     const dot    = document.getElementById('ocrDot');
     const aktiv  = () => _ocrRunning && session === _ocrSession;
     const warte  = ms => new Promise(r => setTimeout(r, ms));
-    const bester = _ocrBester = {};
-    let letzterKey = null, gleich = 0;
+    let bester = _ocrBester = {};
+    const verlauf = [];
     const start = Date.now();
     ocrSta.textContent = 'Suche Nährwerte…';
     dot.style.animation = 'zxingPulse 1.4s ease-in-out infinite';
@@ -1401,13 +1444,11 @@ async function ocrLiveLoop() {
         }
         if (!aktiv()) return;
 
-        for (const k of [...OCR_FELDER, 'portion']) if (p[k] !== '' && p[k] !== undefined) bester[k] = p[k];
+        verlauf.push(p);
+        const konsens = ocrKonsens(verlauf);
+        bester = _ocrBester = konsens.werte;     // Chips zeigen den Favoriten je Feld
         ocrChipsSetzen(bester);
-
         const komplett = OCR_FELDER.every(k => p[k] !== '');
-        const key = komplett ? OCR_FELDER.map(k => p[k]).join('|') : null;
-        gleich = key && key === letzterKey ? gleich + 1 : (key ? 1 : 0);
-        letzterKey = key;
         if (OCR_LOG) {
             const r = v => Math.round(v);
             ocrLog('frame', {
@@ -1415,17 +1456,17 @@ async function ocrLiveLoop() {
                 items: ana.items.map(i => [i.text, r(i.x), r(i.y), r(i.w), r(i.h)]),
                 zeilen: ana.zeilen.map(z => z.text),
                 tabelle: ocrTabelleFinden(ana.zeilen, p.zeilen),
-                werte: p, bester: { ...bester }, komplett, gleich,
+                werte: p, konsens, komplett,
                 plausibel: komplett ? ocrPlausibel(p) : null,
             }, ana.canvas);
         }
-        if (komplett && ((gleich >= 2 && ocrPlausibel(p)) || gleich >= 3)) {
-            await uebernehmen({ ...p, portion: p.portion !== '' ? p.portion : (bester.portion ?? '') });
+        if (konsens.bestaetigt) {
+            await uebernehmen({ kcal: '', eiweiss: '', fett: '', kh: '', portion: '', ...konsens.werte });
             return;
         }
 
         const n = OCR_FELDER.filter(k => bester[k] !== undefined).length;
-        ocrSta.textContent = komplett ? 'Prüfe Werte…'
+        ocrSta.textContent = n === 4 ? 'Prüfe Werte…'
             : (Date.now() - start > 20000 && n < 4)
                 ? 'Tipp: näher ran, gerade halten, Spiegelungen vermeiden'
                 : n ? `Suche Nährwerte… (${n}/4)` : 'Suche Nährwerte…';
@@ -1500,6 +1541,9 @@ function ocrZeilenBilden(items) {
 // Ziffern → 0/1. Ziffern selbst bleiben unangetastet.
 function normalizeOcrText(text) {
     return text
+        // Einheitenspalte „(g)“, „[g]“ – OCR liest das g oft als 9 („(9)“), das
+        // wäre sonst die erste Zahl der Zeile
+        .replace(/[(\[{]\s*[g9q]\s*[)\]}]/gi, ' ')
         .replace(/(\d)[oO](?=\d|\b)/g, '$10')
         .replace(/\b[oO](?=[.,]?\d)/g, '0')
         .replace(/\bl(?=\d)/g, '1')
@@ -1517,8 +1561,10 @@ function extractNaehrwert(line) {
         let raw = m[1];
         const hatEinheit = !!m[2];
         if (/^mg/i.test((m[2] || '').trim())) continue;   // mg-Angaben überspringen
-        if (!hatEinheit && raw.length > 1 && raw.endsWith('9')
-            && (/\.\d9$/.test(raw) || parseFloat(raw) > 100)) {
+        // Nur bei zwei Nachkommastellen („12.39“ → 12.3). Ganze Zahlen > 100
+        // („539“) sind fast immer ein Wert aus einer verrutschten Zeile, z.B.
+        // kcal – gekürzt würde daraus ein falscher Nährwert (53).
+        if (!hatEinheit && raw.length > 1 && raw.endsWith('9') && /\.\d9$/.test(raw)) {
             raw = raw.slice(0, -1).replace(/\.$/, '');
         }
         const v = parseFloat(raw);
@@ -1546,7 +1592,10 @@ function editAbstand(a, b) {
 // Anfangsbuchstabe muss stimmen – so kann z.B. „Salz“ nie als „Fett“ gelten.
 function zeileBeginntMit(l, begriffe, maxFehler) {
     const wort = (l.match(/\p{L}+/u) || [''])[0];
-    return wort.length >= 3 && begriffe.some(b => wort[0] === b[0] && editAbstand(wort, b) <= maxFehler);
+    // lange Wörter vertragen mehr Lesefehler („Kohienyratle“ → 4 von 13):
+    // bis zu einem Drittel der Länge
+    return wort.length >= 3 && begriffe.some(b => wort[0] === b[0]
+        && editAbstand(wort, b) <= Math.max(maxFehler, Math.round(b.length / 3)));
 }
 
 function parseNaehrwerte(text) {
@@ -1559,16 +1608,26 @@ function parseNaehrwerte(text) {
     // zuletzt nur kJ → umrechnen (÷ 4,184).
     // Steht ein kJ-Wert da, muss der kcal-Wert dazu passen (± 5 %) – sonst
     // stammt er z.B. aus der Portionsspalte oder ist verlesen, dann gilt kJ.
-    const kcalWerte  = [...clean.matchAll(/(\d+(?:\.\d+)?)\s*k\s?cal/gi)].map(m => parseFloat(m[1])).filter(v => v <= 900);
+    // „249 kcal“ – nur innerhalb einer Zeile (über einen Umbruch hinweg würde
+    // „…336/ 4⏎kcal 539“ zu „4 kcal“). Dazu Einheitenspalte VOR der Zahl am
+    // Zeilenanfang („kcal) 539“, „(kJ 2252/“), wie bei Nutella.
+    const kcalWerte  = [...clean.matchAll(/(\d+(?:\.\d+)?)[ \t]*k[ \t]?cal/gi),
+                        ...clean.matchAll(/^\W*k[ \t]?cal\W{0,3}(\d+(?:\.\d+)?)/gim)]
+                       .map(m => parseFloat(m[1])).filter(v => v <= 900);
     const kombiMatch = clean.match(/kj\s*\/\s*k\s?cal\D{0,15}(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/i);
-    const kjMatch    = clean.match(/(\d+(?:\.\d+)?)\s*k\s?j/i);
+    const kjMatch    = clean.match(/(\d+(?:\.\d+)?)[ \t]*k[ \t]?j/i)
+                    || clean.match(/^\W*(?:\p{L}+\W+)?k[ \t]?j\W{0,3}(\d{3,4}(?:\.\d+)?)/imu);
     const ausKj      = kjMatch ? parseFloat(kjMatch[1]) / 4.184 : null;
     const passt      = v => ausKj === null || Math.abs(v - ausKj) <= Math.max(3, ausKj * 0.05);
     // Widersprechen sich kcal und kJ, ist einer verlesen (z.B. „2042 kJ“ statt
     // 1042, oder kcal aus der Portionsspalte). Entschieden wird nach den Makros
     // (unten, sobald sie bekannt sind); ohne Makros gilt der kJ-Wert.
     let kcalStrittig = null;
-    if (kombiMatch && passt(parseFloat(kombiMatch[2]))) {
+    // „kJ/kcal 2252/539“: nur wenn das Paar zusammenpasst (sonst z.B. „336/ 4“
+    // aus der Portionsspalte oder ein verlesener Wert)
+    const kombiOk = kombiMatch && Math.abs(parseFloat(kombiMatch[1]) / 4.184 - parseFloat(kombiMatch[2]))
+                                  <= Math.max(3, parseFloat(kombiMatch[2]) * 0.05);
+    if (kombiOk && passt(parseFloat(kombiMatch[2]))) {
         result.kcal = parseFloat(kombiMatch[2]);
     } else if (kcalWerte.some(passt)) {
         result.kcal = kcalWerte.find(passt);
