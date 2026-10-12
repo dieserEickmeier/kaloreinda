@@ -1,0 +1,42 @@
+// ── KalorienTracker – OCR im Web Worker ──────────────────────────────────
+// Der Live-Nährwertscan analysiert laufend Kamerabilder (~1 s pro Bild). Auf
+// dem Haupt-Thread würde die Seite dabei jedes Mal kurz einfrieren, daher
+// läuft die Engine (ppu-ocr.js, siehe log.php) hier.
+//
+// Nachrichten:
+//   → {typ:'init', version, model, wasmPaths}      ← {typ:'bereit'}
+//   → {typ:'scan', id, bitmap}  (ImageBitmap, transferiert)
+//                                                  ← {typ:'ergebnis', id, items}
+//   ← {typ:'fehler', id?, msg}
+let svc = null;
+
+self.onmessage = async (e) => {
+    const m = e.data;
+    try {
+        if (m.typ === 'init') {
+            importScripts('/assets/js/ocr/ppu-ocr.js?v=' + encodeURIComponent(m.version));
+            PpuOcr.ort.env.wasm.wasmPaths  = m.wasmPaths;
+            PpuOcr.ort.env.wasm.numThreads = 1;
+            svc = new PpuOcr.PaddleOcrService({
+                model:   m.model,
+                session: { executionProviders: ['wasm'] },
+            });
+            await svc.initialize();
+            self.postMessage({ typ: 'bereit' });
+        } else if (m.typ === 'scan') {
+            const bmp = m.bitmap;
+            const c = new OffscreenCanvas(bmp.width, bmp.height);
+            c.getContext('2d').drawImage(bmp, 0, 0);
+            bmp.close();
+            const res = await svc.recognize(c, { flatten: true });
+            self.postMessage({
+                typ: 'ergebnis', id: m.id,
+                items: res.results.map(r => ({
+                    text: r.text, x: r.box.x, y: r.box.y, w: r.box.width, h: r.box.height,
+                })),
+            });
+        }
+    } catch (err) {
+        self.postMessage({ typ: 'fehler', id: m.id, msg: String((err && err.message) || err) });
+    }
+};

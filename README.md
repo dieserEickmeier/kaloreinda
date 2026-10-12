@@ -125,7 +125,7 @@ kalorientracker/
 │   ├── js/app.js          # App-weite Helfer
 │   ├── js/scanner.js      # Barcode-Live-Scanner (global)
 │   ├── js/zxing-wasm.js + zxing_reader.wasm   # Barcode-Erkennung
-│   ├── js/ocr/            # OCR-Bundle + ONNX-Runtime-WASM
+│   ├── js/ocr/            # OCR-Bundle, Web Worker, ONNX-Runtime-WASM
 │   └── models/            # OCR-Modelle (PP-OCRv6 tiny)
 └── pebble/            # Pebble-Ziffernblatt und Sync-App (siehe pebble/README.md)
 ```
@@ -135,9 +135,10 @@ kalorientracker/
 - **Mehrbenutzerfähig** – Session-Login, alle Daten pro Nutzer getrennt
 - **Barcode-Scan** – Live-Scanner (ZXing/WASM, EAN/UPC) über den Scan-Button der
   Navigation auf jeder Seite, alternativ Barcode eintippen
-- **Nährwerttabelle scannen** (Beta) – PaddleOCR (PP-OCRv6 tiny) läuft lokal im
-  Browser und liest kcal, Makros und Portionsgröße aus; tolerant gegen schräg
-  gehaltene Etiketten
+- **Nährwerttabelle scannen** (Beta) – live ohne Auslösen: PaddleOCR (PP-OCRv6 tiny)
+  läuft lokal im Browser (Web Worker), liest kcal, Makros und Portionsgröße und
+  übernimmt automatisch, sobald die Werte bestätigt und plausibel sind; tolerant
+  gegen schräg gehaltene Etiketten
 - **Unbekannter Barcode** – direkt per Nährwert-Scan oder manuell anlegen, der
   Barcode wird mitgespeichert und beim nächsten Scan gefunden
 - **Produkt-Cache** – OpenFoodFacts-Treffer werden lokal gespeichert und nach
@@ -175,12 +176,13 @@ npm install ppu-paddle-ocr@6.6.1 onnxruntime-web@1.30.0 esbuild
 cat > entry.js <<'JS'
 import * as ort from "onnxruntime-web";
 import { PaddleOcrService } from "ppu-paddle-ocr/web";
-window.PpuOcr = { PaddleOcrService, ort };
+globalThis.PpuOcr = { PaddleOcrService, ort };   // globalThis: auch im Web Worker
 JS
 echo 'export * from "./node_modules/onnxruntime-web/dist/ort.wasm.min.mjs";' > ort-shim.js
 npx esbuild entry.js --bundle --minify --format=iife --target=es2020,safari16 \
     --alias:onnxruntime-web=./ort-shim.js --outfile=assets/js/ocr/ppu-ocr.js
 cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.{mjs,wasm} assets/js/ocr/
+# assets/js/ocr/ocr-worker.js ist eigener Code und bleibt unverändert
 ```
 
 Modelle (`PP-OCRv6_tiny_det.ort`, `PP-OCRv6_tiny_rec.ort`, `ppocrv6_tiny_dict.txt`) von

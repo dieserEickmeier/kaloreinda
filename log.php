@@ -290,7 +290,7 @@ renderHeader('Erfassen', 'log');
         <div style="position:absolute;inset:0;pointer-events:none;
                     display:flex;align-items:center;justify-content:center;">
             <div id="ocrFrame" style="
-                width:85%;aspect-ratio:3/4;
+                position:relative;width:85%;aspect-ratio:3/4;
                 border:2px solid var(--carb);border-radius:12px;
                 box-shadow:0 0 0 9999px rgba(0,0,0,.5);
                 transition:border-color .2s,box-shadow .2s;">
@@ -304,9 +304,9 @@ renderHeader('Erfassen', 'log');
                 <div style="position:absolute;bottom:0;right:0;width:22px;height:22px;
                             border-bottom:3px solid var(--carb);border-right:3px solid var(--carb);border-radius:0 0 4px 0;"></div>
                 <!-- Hinweistext im Rahmen -->
-                <div style="position:absolute;bottom:.5rem;left:0;right:0;text-align:center;
+                <div style="position:absolute;bottom:.5rem;left:.5rem;right:.5rem;text-align:center;
                             font-size:.7rem;color:rgba(167,139,250,.8);">
-                    Nährwerttabelle im Rahmen platzieren
+                    Nährwerttabelle in den Rahmen halten – wird automatisch erkannt
                 </div>
             </div>
         </div>
@@ -322,15 +322,20 @@ renderHeader('Erfassen', 'log');
             <div id="ocrDot" style="width:8px;height:8px;border-radius:50%;
                  background:var(--carb);flex-shrink:0;"></div>
             <span id="ocrStatus" style="font-size:.9rem;color:var(--text);font-weight:500;">
-                Bereit – Foto aufnehmen
+                Kamera wird gestartet…
             </span>
+        </div>
+        <!-- Live-Fortschritt: welche Werte schon erkannt sind -->
+        <div id="ocrChips" class="ocr-chips">
+            <span data-feld="kcal">kcal</span><span data-feld="eiweiss">Eiweiß</span>
+            <span data-feld="fett">Fett</span><span data-feld="kh">KH</span>
         </div>
         <div style="display:flex;gap:.75rem;width:100%;max-width:320px;">
             <button id="btnOcrCapture" onclick="ocrCapture()"
                     style="flex:1;background:var(--carb);border:none;border-radius:14px;
                            color:#160b33;font-size:1rem;font-weight:700;padding:.85rem;
                            cursor:pointer;-webkit-tap-highlight-color:transparent;">
-                <i class="bi bi-camera-fill"></i> Foto aufnehmen
+                <i class="bi bi-check-lg"></i> Jetzt übernehmen
             </button>
             <button onclick="ocrStop()"
                     style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);
@@ -978,67 +983,114 @@ document.getElementById('ddManuell').addEventListener('click', openManualModal);
 
 // ── OCR Nährwerte Scanner (ppu-paddle-ocr + PP-OCRv6 tiny, Beta) ─────────
 // Bundle assets/js/ocr/ppu-ocr.js = ppu-paddle-ocr/web + onnxruntime-web
-// (nur WASM-Backend), per esbuild als IIFE gebaut (window.PpuOcr). Modelle
+// (nur WASM-Backend), per esbuild als IIFE gebaut (globalThis.PpuOcr). Modelle
 // und ORT-WASM liegen lokal – ohne wasmPaths käme die WASM-Datei von jsDelivr.
 // Bei einem Update alle Dateien gemeinsam ersetzen und OCR_ASSET_VERSION erhöhen.
-const OCR_ASSET_VERSION = 'ppu6.6.1-ort1.30.0-v6tiny';
+const OCR_ASSET_VERSION = 'ppu6.6.1-ort1.30.0-v6tiny-w1';
 const OCR_MODEL = {
     detection:            '/assets/models/PP-OCRv6_tiny_det.ort',
     recognition:          '/assets/models/PP-OCRv6_tiny_rec.ort',
     charactersDictionary: '/assets/models/ppocrv6_tiny_dict.txt',
 };
 let _ocrStream  = null;
-let _ocrWorker  = null;
 let _ocrRunning = false;
+
+// ── OCR-Engine: bevorzugt im Web Worker (assets/js/ocr/ocr-worker.js), damit
+// die Live-Analyse die Seite nicht einfriert. Ohne Worker-/OffscreenCanvas-
+// Unterstützung oder wenn der Worker nicht startet: direkt auf der Seite.
+const ocrEngine = {
+    worker: null, svc: null, offen: new Map(), seq: 0, bereit: null,
+
+    init(onStatus) {
+        this.bereit ??= this._init(onStatus).catch(e => { this.bereit = null; throw e; });
+        return this.bereit;
+    },
+    async _init(onStatus) {
+        const v = '?v=' + OCR_ASSET_VERSION;
+        const model = {
+            detection:            OCR_MODEL.detection + v,
+            recognition:          OCR_MODEL.recognition + v,
+            charactersDictionary: OCR_MODEL.charactersDictionary + v,
+        };
+        const wasmPaths = {
+            mjs:  '/assets/js/ocr/ort-wasm-simd-threaded.mjs' + v,
+            wasm: '/assets/js/ocr/ort-wasm-simd-threaded.wasm' + v,
+        };
+        onStatus('Lade OCR-Engine… (einmalig)');
+        if (typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined') {
+            try {
+                await this._initWorker(model, wasmPaths);
+                return;
+            } catch (e) {
+                console.warn('[OCR] Worker nicht nutzbar, nutze Haupt-Thread:', e);
+                this.worker?.terminate(); this.worker = null;
+            }
+        }
+        if (typeof PpuOcr === 'undefined') {
+            await new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = '/assets/js/ocr/ppu-ocr.js' + v;
+                s.onload = resolve;
+                s.onerror = () => reject(new Error('OCR-Engine nicht ladbar'));
+                document.head.appendChild(s);
+            });
+        }
+        // ONNX Runtime: WASM lokal, single-threaded (kein COOP/COEP nötig)
+        PpuOcr.ort.env.wasm.wasmPaths  = wasmPaths;
+        PpuOcr.ort.env.wasm.numThreads = 1;
+        this.svc = new PpuOcr.PaddleOcrService({ model, session: { executionProviders: ['wasm'] } });
+        await this.svc.initialize();
+    },
+    _initWorker(model, wasmPaths) {
+        return new Promise((resolve, reject) => {
+            const w = new Worker('/assets/js/ocr/ocr-worker.js?v=' + OCR_ASSET_VERSION);
+            this.worker = w;
+            w.onerror = e => reject(new Error(e.message || 'Worker-Fehler'));
+            w.onmessage = e => {
+                const m = e.data;
+                if (m.typ === 'bereit') { resolve(); return; }
+                if (m.typ === 'fehler' && m.id == null) { reject(new Error(m.msg)); return; }
+                const p = this.offen.get(m.id);
+                if (!p) return;
+                this.offen.delete(m.id);
+                m.typ === 'ergebnis' ? p.resolve(m.items) : p.reject(new Error(m.msg));
+            };
+            w.postMessage({ typ: 'init', version: OCR_ASSET_VERSION, model, wasmPaths });
+        });
+    },
+    // Canvas → Textboxen [{text,x,y,w,h}]
+    async scan(canvas) {
+        if (this.worker) {
+            const bitmap = await createImageBitmap(canvas);
+            const id = ++this.seq;
+            return new Promise((resolve, reject) => {
+                this.offen.set(id, { resolve, reject });
+                this.worker.postMessage({ typ: 'scan', id, bitmap }, [bitmap]);
+            });
+        }
+        const res = await this.svc.recognize(canvas, { flatten: true });
+        return res.results.map(r => ({ text: r.text, x: r.box.x, y: r.box.y, w: r.box.width, h: r.box.height }));
+    },
+};
 
 async function ocrStart() {
     const modal  = document.getElementById('ocrModal');
     const vid    = document.getElementById('ocrVideo');
-    const status = document.getElementById('zxingStatus'); // eigener Status
     const ocrSta = document.getElementById('ocrStatus');
     modal.style.display = 'flex';
     ocrSta.textContent  = 'Kamera wird gestartet…';
+    ocrChipsSetzen({});
 
-    // OCR-Engine initialisieren (lazy: ~100 KB Skript, ~14 MB ORT-WASM,
-    // ~6 MB Modelle – nur beim ersten Öffnen, danach Browser-Cache)
-    if (!_ocrWorker) {
-        try {
-            if (typeof PpuOcr === 'undefined') {
-                ocrSta.textContent = 'Lade OCR-Engine… (einmalig)';
-                await new Promise((resolve, reject) => {
-                    const s = document.createElement('script');
-                    s.src = '/assets/js/ocr/ppu-ocr.js?v=' + OCR_ASSET_VERSION;
-                    s.onload = resolve;
-                    s.onerror = () => reject(new Error('OCR-Engine nicht ladbar'));
-                    document.head.appendChild(s);
-                });
-            }
-            // ONNX Runtime: WASM lokal, single-threaded (kein COOP/COEP nötig)
-            PpuOcr.ort.env.wasm.wasmPaths  = {
-                mjs:  '/assets/js/ocr/ort-wasm-simd-threaded.mjs?v=' + OCR_ASSET_VERSION,
-                wasm: '/assets/js/ocr/ort-wasm-simd-threaded.wasm?v=' + OCR_ASSET_VERSION,
-            };
-            PpuOcr.ort.env.wasm.numThreads = 1;
-
-            ocrSta.textContent = 'Initialisiere Modelle…';
-            const v = '?v=' + OCR_ASSET_VERSION;
-            const svc = new PpuOcr.PaddleOcrService({
-                model: {
-                    detection:            OCR_MODEL.detection + v,
-                    recognition:          OCR_MODEL.recognition + v,
-                    charactersDictionary: OCR_MODEL.charactersDictionary + v,
-                },
-                session: { executionProviders: ['wasm'] },
-            });
-            await svc.initialize();
-            _ocrWorker = svc;
-            ocrSta.textContent = 'Bereit – Foto aufnehmen';
-        } catch(e) {
-            ocrSta.textContent = 'Fehler: ' + e.message;
-            console.error('[OCR]', e);
-            return;
-        }
+    // OCR-Engine laden (lazy: ~100 KB Skript, ~14 MB ORT-WASM, ~6 MB
+    // Modelle – nur beim ersten Öffnen, danach Browser-Cache)
+    try {
+        await ocrEngine.init(t => { ocrSta.textContent = t; });
+    } catch(e) {
+        ocrSta.textContent = 'Fehler: ' + e.message;
+        console.error('[OCR]', e);
+        return;
     }
+    if (modal.style.display === 'none') return;   // während des Ladens geschlossen
 
     try {
         _ocrStream = await navigator.mediaDevices.getUserMedia({
@@ -1049,8 +1101,9 @@ async function ocrStart() {
         vid.setAttribute('autoplay', '');
         vid.muted = true;
         await vid.play().catch(e => console.warn('[OCR] play()', e));
+        if (modal.style.display === 'none') { ocrStop(); return; }
         _ocrRunning = true;
-        if (_ocrWorker) ocrSta.textContent = 'Bereit – Foto aufnehmen';
+        ocrLiveLoop();
     } catch(e) {
         ocrSta.textContent = 'Kamera-Fehler: ' + e.message;
     }
@@ -1104,56 +1157,101 @@ async function ocrAnalyzeFrame() {
                        0, 0, canvas.width, canvas.height);
 
     // 3. OCR: Detection + Recognition, flach mit Boxen
-    const res = await _ocrWorker.recognize(canvas, { flatten: true });
-    const items = res.results.map(r => ({
-        text: r.text, x: r.box.x, y: r.box.y, w: r.box.width, h: r.box.height,
-    }));
+    const items = await ocrEngine.scan(canvas);
     const text = ocrZeilenBilden(items).join('\n');
 
     return parseNaehrwerte(text);
 }
 
-let _ocrBusy = false; // verhindert parallele detect()-Läufe
+// ── Live-Erkennung ───────────────────────────────────────────────────────
+// Solange der Scanner offen ist, wird laufend ein Bild analysiert (eins nach
+// dem anderen, ~1/s). Übernommen wird automatisch, sobald kcal, Eiweiß, Fett
+// und KH erkannt sind UND das Ergebnis bestätigt ist: zweimal hintereinander
+// gleich gelesen und zueinander plausibel (4·E + 4·KH + 9·F ≈ kcal) – oder
+// dreimal gleich (z.B. Produkte mit viel Ballaststoffen/Zuckeralkohol, bei
+// denen die Faustformel nicht passt). „Jetzt übernehmen“ nimmt den bisher
+// besten Stand, fehlende Werte trägt man im Formular nach.
+const OCR_FELDER = ['kcal', 'eiweiss', 'fett', 'kh'];
+let _ocrSession = 0, _ocrJetzt = false;
 
-// ── Foto-Aufnahme: Analyse mit Overlay-Feedback ──────────────────────────
-async function ocrCapture() {
-    if (!_ocrRunning || !_ocrWorker || _ocrBusy) return;
-    const flash  = document.getElementById('ocrFlash');
-    const frame  = document.getElementById('ocrFrame');
-    const ocrSta = document.getElementById('ocrStatus');
-    const btn    = document.getElementById('btnOcrCapture');
-
-    flash.style.opacity = '0.7';
-    setTimeout(() => flash.style.opacity = '0', 120);
-
-    _ocrBusy = true;
-    btn.disabled = true;
-    ocrSta.textContent = 'Analysiere Bild…';
-    frame.style.borderColor = 'var(--quick)';
-    scanOverlayShow('Analysiere Nährwerttabelle…', {
-        icon: 'bi-body-text', color: 'var(--carb)',
+function ocrChipsSetzen(werte) {
+    document.querySelectorAll('#ocrChips [data-feld]').forEach(el => {
+        el.classList.toggle('ok', werte[el.dataset.feld] !== undefined && werte[el.dataset.feld] !== '');
     });
+}
 
-    try {
-        const parsed = await ocrAnalyzeFrame();
+function ocrPlausibel(p) {
+    const berechnet = 4 * p.eiweiss + 4 * p.kh + 9 * p.fett;
+    return Math.abs(berechnet - p.kcal) <= Math.max(20, p.kcal * 0.15);
+}
+
+async function ocrLiveLoop() {
+    const session = ++_ocrSession;
+    const vid    = document.getElementById('ocrVideo');
+    const ocrSta = document.getElementById('ocrStatus');
+    const frame  = document.getElementById('ocrFrame');
+    const dot    = document.getElementById('ocrDot');
+    const aktiv  = () => _ocrRunning && session === _ocrSession;
+    const warte  = ms => new Promise(r => setTimeout(r, ms));
+    const bester = {};                    // je Feld der zuletzt erkannte Wert
+    let letzterKey = null, gleich = 0;
+    const start = Date.now();
+    _ocrJetzt = false;
+    ocrSta.textContent = 'Suche Nährwerte…';
+    dot.style.animation = 'zxingPulse 1.4s ease-in-out infinite';
+
+    const uebernehmen = (werte) => {
+        const flash = document.getElementById('ocrFlash');
+        flash.style.opacity = '0.7';
+        setTimeout(() => flash.style.opacity = '0', 120);
         frame.style.borderColor = 'var(--accent)';
-        scanOverlayHide();
         ocrSta.textContent = '✓ Erkannt – bitte prüfen';
         ocrStop();
-        showOcrResult(parsed);
-    } catch(e) {
-        scanOverlayHide();
-        console.error('[OCR] detect', e);
-        frame.style.borderColor = 'var(--danger)';
-        ocrSta.textContent = '✗ ' + (e.message || e).toString().slice(0, 80);
-        setTimeout(() => {
-            frame.style.borderColor = 'var(--carb)';
-            ocrSta.textContent = 'Bereit – Foto aufnehmen';
-        }, 4000);
-    } finally {
-        _ocrBusy = false;
-        btn.disabled = false;
+        showOcrResult(werte);
+    };
+
+    while (aktiv()) {
+        if (document.hidden || vid.readyState < 2 || !vid.videoWidth) { await warte(300); continue; }
+        let p;
+        try {
+            p = await ocrAnalyzeFrame();
+        } catch (e) {
+            console.warn('[OCR] Analyse', e);
+            if (!aktiv()) return;
+            ocrSta.textContent = '✗ ' + String(e.message || e).slice(0, 60);
+            await warte(1500);
+            continue;
+        }
+        if (!aktiv()) return;
+
+        for (const k of [...OCR_FELDER, 'portion']) if (p[k] !== '' && p[k] !== undefined) bester[k] = p[k];
+        ocrChipsSetzen(bester);
+
+        if (_ocrJetzt) { uebernehmen({ kcal: '', eiweiss: '', fett: '', kh: '', portion: '', ...bester }); return; }
+
+        const komplett = OCR_FELDER.every(k => p[k] !== '');
+        const key = komplett ? OCR_FELDER.map(k => p[k]).join('|') : null;
+        gleich = key && key === letzterKey ? gleich + 1 : (key ? 1 : 0);
+        letzterKey = key;
+        if (komplett && ((gleich >= 2 && ocrPlausibel(p)) || gleich >= 3)) {
+            uebernehmen({ ...p, portion: p.portion !== '' ? p.portion : (bester.portion ?? '') });
+            return;
+        }
+
+        const n = OCR_FELDER.filter(k => bester[k] !== undefined).length;
+        ocrSta.textContent = komplett ? 'Prüfe Werte…'
+            : (Date.now() - start > 20000 && n < 4)
+                ? 'Tipp: näher ran, gerade halten, Spiegelungen vermeiden'
+                : n ? `Suche Nährwerte… (${n}/4)` : 'Suche Nährwerte…';
+        await warte(200);
     }
+}
+
+// „Jetzt übernehmen“: nach der laufenden Analyse mit dem besten Stand weiter
+function ocrCapture() {
+    if (!_ocrRunning) return;
+    _ocrJetzt = true;
+    document.getElementById('ocrStatus').textContent = 'Übernehme…';
 }
 
 // ── Zeilen aus OCR-Boxen bilden, tolerant gegen schräg gehaltene Etiketten ──
@@ -1243,10 +1341,11 @@ function editAbstand(a, b) {
     }
     return prev[b.length];
 }
-// Erstes Wort der Zeile (nur Buchstaben) ähnelt einem der Begriffe?
+// Erstes Wort der Zeile (nur Buchstaben) ähnelt einem der Begriffe? Der
+// Anfangsbuchstabe muss stimmen – so kann z.B. „Salz“ nie als „Fett“ gelten.
 function zeileBeginntMit(l, begriffe, maxFehler) {
     const wort = (l.match(/\p{L}+/u) || [''])[0];
-    return wort.length >= 3 && begriffe.some(b => editAbstand(wort, b) <= maxFehler);
+    return wort.length >= 3 && begriffe.some(b => wort[0] === b[0] && editAbstand(wort, b) <= maxFehler);
 }
 
 function parseNaehrwerte(text) {
@@ -1273,7 +1372,8 @@ function parseNaehrwerte(text) {
     }
 
     // ── Portionsgröße: „pro Portion (30 g)“, „1 Portion = 30 g“, „pro 30 g“
-    const portionMatch = clean.match(/(?:portion|serving|stück)\D{0,20}?(\d+(?:\.\d+)?)\s*(?:g|ml)\b/i)
+    // „port\w{0,3}n“ deckt auch verlesene Formen wie „Porton“ ab
+    const portionMatch = clean.match(/(?:port\w{0,3}n|serving|stück)\D{0,20}?(\d+(?:\.\d+)?)\s*(?:g|ml)\b/i)
                       || clean.match(/(?:pro|je)\s+(\d+(?:\.\d+)?)\s*(?:g|ml)\b/i);
     if (portionMatch && parseFloat(portionMatch[1]) !== 100) {
         result.portion = parseFloat(portionMatch[1]);
@@ -1281,15 +1381,15 @@ function parseNaehrwerte(text) {
 
     for (const line of clean.split('\n').map(l => l.trim()).filter(Boolean)) {
         const l = line.toLowerCase();
-        if (!result.eiweiss && (l.includes('eiwei') || l.includes('protein')
+        if (result.eiweiss === '' && (l.includes('eiwei') || l.includes('protein')
                                 || zeileBeginntMit(l, ['eiweiß', 'eiweiss'], 2))) {
             const v = extractNaehrwert(line); if (v !== null) result.eiweiss = v;
         }
-        if (!result.fett && (l.includes('fett') || /\bfat\b/.test(l) || zeileBeginntMit(l, ['fett'], 1))
+        if (result.fett === '' && (l.includes('fett') || /\bfat\b/.test(l) || zeileBeginntMit(l, ['fett'], 2))
             && !/^\W*davon\b/.test(l) && !/ges[äa]t+ig|fetts[äa]ure|saturate|trans/.test(l)) {
             const v = extractNaehrwert(line); if (v !== null) result.fett = v;
         }
-        if (!result.kh && (l.includes('kohlenh') || l.includes('carbohydrate') || /\bkh\b/.test(l)
+        if (result.kh === '' && (l.includes('kohlenh') || l.includes('carbohydrate') || /\bkh\b/.test(l)
                            || zeileBeginntMit(l, ['kohlenhydrate'], 3))) {
             const v = extractNaehrwert(line); if (v !== null) result.kh = v;
         }
@@ -1298,10 +1398,11 @@ function parseNaehrwerte(text) {
 }
 
 function showOcrResult(parsed) {
-    document.getElementById('ocrKcal').value    = parsed.kcal    || '';
-    document.getElementById('ocrEiweiss').value = parsed.eiweiss || '';
-    document.getElementById('ocrFett').value    = parsed.fett    || '';
-    document.getElementById('ocrKh').value      = parsed.kh      || '';
+    const wert = v => (v === '' || v == null) ? '' : v;   // 0 g ist ein gültiger Wert
+    document.getElementById('ocrKcal').value    = wert(parsed.kcal);
+    document.getElementById('ocrEiweiss').value = wert(parsed.eiweiss);
+    document.getElementById('ocrFett').value    = wert(parsed.fett);
+    document.getElementById('ocrKh').value      = wert(parsed.kh);
     document.getElementById('ocrMenge').value   = '100';
     document.getElementById('ocrPortion').value = parsed.portion || '';
     document.getElementById('ocrName').value    = '';
@@ -1403,6 +1504,9 @@ async function ocrSave() {
 function ocrStop() {
     if (typeof scanOverlayHide === 'function') scanOverlayHide();
     _ocrRunning = false;
+    _ocrSession++;
+    document.getElementById('ocrDot').style.animation = '';
+    document.getElementById('ocrFrame').style.borderColor = 'var(--carb)';
     if (_ocrStream) { _ocrStream.getTracks().forEach(t => t.stop()); _ocrStream = null; }
     document.getElementById('ocrModal').style.display = 'none';
 }
