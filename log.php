@@ -326,15 +326,17 @@ renderHeader('Erfassen', 'log');
         </div>
         <!-- Live-Fortschritt: welche Werte schon erkannt sind -->
         <div id="ocrChips" class="ocr-chips">
-            <span data-feld="kcal">kcal</span><span data-feld="eiweiss">Eiweiß</span>
-            <span data-feld="fett">Fett</span><span data-feld="kh">KH</span>
+            <span data-feld="kcal">kcal –</span><span data-feld="eiweiss">Eiweiß –</span>
+            <span data-feld="fett">Fett –</span><span data-feld="kh">KH –</span>
         </div>
         <div style="display:flex;gap:.75rem;width:100%;max-width:320px;">
+            <!-- Ausweg, keine Bestätigung: Übernommen wird automatisch; hier geht
+                 es ohne Warten ins Formular (mit dem, was bis jetzt erkannt ist). -->
             <button id="btnOcrCapture" onclick="ocrCapture()"
-                    style="flex:1;background:var(--carb);border:none;border-radius:14px;
-                           color:#160b33;font-size:1rem;font-weight:700;padding:.85rem;
+                    style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);
+                           border-radius:14px;color:var(--text);font-size:.95rem;font-weight:600;padding:.85rem;
                            cursor:pointer;-webkit-tap-highlight-color:transparent;">
-                <i class="bi bi-check-lg"></i> Jetzt übernehmen
+                <i class="bi bi-pencil"></i> Selbst eintragen
             </button>
             <button onclick="ocrStop()"
                     style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);
@@ -352,7 +354,7 @@ renderHeader('Erfassen', 'log');
         <div class="sheet-head">
             <div>
                 <h2>Erkannte Nährwerte</h2>
-                <p class="sheet-sub">
+                <p class="sheet-sub" id="ocrResultHinweis">
                     Bitte prüfen und ggf. korrigieren
                 </p>
                 <p class="sheet-sub barcode-hint" style="display:none;"></p>
@@ -1078,6 +1080,7 @@ async function ocrStart() {
     const ocrSta = document.getElementById('ocrStatus');
     modal.style.display = 'flex';
     ocrSta.textContent  = 'Kamera wird gestartet…';
+    _ocrBester = {};
     ocrChipsSetzen({});
 
     // OCR-Engine laden (lazy: ~100 KB Skript, ~14 MB ORT-WASM, ~6 MB
@@ -1168,15 +1171,28 @@ async function ocrAnalyzeFrame() {
 // und KH erkannt sind UND das Ergebnis bestätigt ist: zweimal hintereinander
 // gleich gelesen und zueinander plausibel (4·E + 4·KH + 9·F ≈ kcal) – oder
 // dreimal gleich (z.B. Produkte mit viel Ballaststoffen/Zuckeralkohol, bei
-// denen die Faustformel nicht passt). „Jetzt übernehmen“ nimmt den bisher
-// besten Stand, fehlende Werte trägt man im Formular nach.
+// denen die Faustformel nicht passt). Bis dahin zeigt der Scanner die bisher
+// gelesenen Werte an. Der Knopf darunter ist ein Ausweg, keine Bestätigung:
+// er öffnet sofort das Formular mit dem bisherigen Stand – geprüft wird dort.
 const OCR_FELDER = ['kcal', 'eiweiss', 'fett', 'kh'];
-let _ocrSession = 0, _ocrJetzt = false;
+const OCR_LABEL  = { kcal: 'kcal', eiweiss: 'Eiweiß', fett: 'Fett', kh: 'KH' };
+let _ocrSession = 0;
+let _ocrBester  = {};                   // je Feld der zuletzt erkannte Wert
 
 function ocrChipsSetzen(werte) {
+    const fmt = v => Number(v).toLocaleString('de-DE', { maximumFractionDigits: 1 });
+    let n = 0;
     document.querySelectorAll('#ocrChips [data-feld]').forEach(el => {
-        el.classList.toggle('ok', werte[el.dataset.feld] !== undefined && werte[el.dataset.feld] !== '');
+        const f = el.dataset.feld, v = werte[f], da = v !== undefined && v !== '';
+        if (da) n++;
+        el.classList.toggle('ok', da);
+        el.textContent = f === 'kcal'
+            ? (da ? fmt(v) + ' kcal' : 'kcal –')
+            : OCR_LABEL[f] + ' ' + (da ? fmt(v) + ' g' : '–');
     });
+    document.getElementById('btnOcrCapture').innerHTML = n
+        ? '<i class="bi bi-arrow-right"></i> Mit erkannten Werten weiter'
+        : '<i class="bi bi-pencil"></i> Selbst eintragen';
 }
 
 function ocrPlausibel(p) {
@@ -1192,10 +1208,9 @@ async function ocrLiveLoop() {
     const dot    = document.getElementById('ocrDot');
     const aktiv  = () => _ocrRunning && session === _ocrSession;
     const warte  = ms => new Promise(r => setTimeout(r, ms));
-    const bester = {};                    // je Feld der zuletzt erkannte Wert
+    const bester = _ocrBester = {};
     let letzterKey = null, gleich = 0;
     const start = Date.now();
-    _ocrJetzt = false;
     ocrSta.textContent = 'Suche Nährwerte…';
     dot.style.animation = 'zxingPulse 1.4s ease-in-out infinite';
 
@@ -1206,7 +1221,7 @@ async function ocrLiveLoop() {
         frame.style.borderColor = 'var(--accent)';
         ocrSta.textContent = '✓ Erkannt – bitte prüfen';
         ocrStop();
-        showOcrResult(werte);
+        showOcrResult(werte, true);
     };
 
     while (aktiv()) {
@@ -1226,8 +1241,6 @@ async function ocrLiveLoop() {
         for (const k of [...OCR_FELDER, 'portion']) if (p[k] !== '' && p[k] !== undefined) bester[k] = p[k];
         ocrChipsSetzen(bester);
 
-        if (_ocrJetzt) { uebernehmen({ kcal: '', eiweiss: '', fett: '', kh: '', portion: '', ...bester }); return; }
-
         const komplett = OCR_FELDER.every(k => p[k] !== '');
         const key = komplett ? OCR_FELDER.map(k => p[k]).join('|') : null;
         gleich = key && key === letzterKey ? gleich + 1 : (key ? 1 : 0);
@@ -1246,11 +1259,12 @@ async function ocrLiveLoop() {
     }
 }
 
-// „Jetzt übernehmen“: nach der laufenden Analyse mit dem besten Stand weiter
+// „Selbst eintragen“ / „Mit erkannten Werten weiter“: sofort ins Formular,
+// auch während die Engine noch lädt; eine laufende Analyse wird verworfen.
 function ocrCapture() {
-    if (!_ocrRunning) return;
-    _ocrJetzt = true;
-    document.getElementById('ocrStatus').textContent = 'Übernehme…';
+    const werte = { kcal: '', eiweiss: '', fett: '', kh: '', portion: '', ..._ocrBester };
+    ocrStop();
+    showOcrResult(werte, false);
 }
 
 // ── Zeilen aus OCR-Boxen bilden, tolerant gegen schräg gehaltene Etiketten ──
@@ -1396,7 +1410,14 @@ function parseNaehrwerte(text) {
     return result;
 }
 
-function showOcrResult(parsed) {
+// automatisch = vom Live-Scan bestätigt; sonst über den Knopf mit Teilstand
+function showOcrResult(parsed, automatisch = false) {
+    const n = OCR_FELDER.filter(k => parsed[k] !== '' && parsed[k] != null).length;
+    document.getElementById('ocrResultHinweis').textContent =
+        automatisch ? 'Automatisch erkannt – bitte mit der Packung vergleichen'
+        : n === 4   ? 'Erkannt, aber noch nicht bestätigt – bitte genau prüfen'
+        : n         ? n + ' von 4 Werten erkannt – bitte prüfen und ergänzen'
+        :             'Bitte die Werte von der Packung eintragen';
     const wert = v => (v === '' || v == null) ? '' : v;   // 0 g ist ein gültiger Wert
     document.getElementById('ocrKcal').value    = wert(parsed.kcal);
     document.getElementById('ocrEiweiss').value = wert(parsed.eiweiss);

@@ -1116,11 +1116,10 @@ a { color: var(--accent); }
 .icon-btn--accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .icon-btn--accent:hover, .icon-btn--accent:active { background: var(--accent); color: var(--accent-ink); }
 
-/* ── Nährwert-Live-Scan: erkannte Werte ─────────────────────────── */
+/* ── Nährwert-Live-Scan: bisher gelesene (noch unbestätigte) Werte ── */
 .ocr-chips { display: flex; gap: .4rem; justify-content: center; flex-wrap: wrap; }
 .ocr-chips span {
     font-size: .75rem; font-weight: 600; padding: .25rem .6rem; border-radius: 999px;
     color: var(--muted); border: 1px solid var(--border); transition: all .2s;
 }
-.ocr-chips span.ok { color: #160b33; background: var(--carb); border-color: var(--carb); }
-.ocr-chips span.ok::before { content: '✓ '; }
+.ocr-chips span.ok { color: var(--text); border-color: var(--carb); }
