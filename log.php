@@ -1390,15 +1390,14 @@ function ocrChipsSetzen(werte) {
 }
 
 // Abstimmung über die letzten Analysen. Jede Lesung eines Feldes zählt als
-// Stimme, auch wenn im selben Bild ein anderes Feld fehlte. Bestätigt ist:
-//   · eine Kombination aus Kandidaten mit je ≥ 2 Stimmen, deren Werte
-//     zueinander passen (4·E + 4·KH + 9·F ≈ kcal) – bei mehreren die mit den
-//     meisten Stimmen. Das löst auch Gleichstände wie Eiweiß „49“ vs. „4,9“.
-//   · sonst ≥ 3 Stimmen je Feld, doppelt so viele wie der Zweite und ≤ 25 %
-//     Abweichung (für Produkte, bei denen
-//     die Faustformel nicht passt, z.B. viel Ballaststoffe/Zuckeralkohol).
+// Stimme, auch wenn im selben Bild ein anderes Feld fehlte. Bestätigt ist eine
+// Kombination aus Kandidaten mit je ≥ 2 Stimmen, deren Werte zueinander
+// passen (4·E + 4·KH + 9·F ≈ kcal) – bei mehreren die mit den meisten Stimmen.
+// Das löst auch Gleichstände wie Eiweiß „49“ vs. „4,9“. Passt die Faustformel
+// nicht (viel Ballaststoffe, Zuckeralkohole), wird nicht automatisch
+// übernommen; „Mit erkannten Werten weiter“ übernimmt dann den Stand.
 // werte: je Feld der Favorit (bei Gleichstand der zuletzt gelesene) – für die Chips.
-const OCR_FENSTER = 20;
+const OCR_FENSTER = 12;   // 16+ mischte bei Packungswechsel Werte zweier Produkte
 const OCR_MIN_KONF = 0.2;
 function ocrKonsens(verlauf) {
     const fenster = verlauf.slice(-OCR_FENSTER);
@@ -1429,15 +1428,7 @@ function ocrKonsens(verlauf) {
         };
         kombi(0, []);
     }
-    if (beste) return { werte: { ...werte, ...beste.w }, bestaetigt: true };
-
-    // ohne enge Plausibilität nur bei deutlichem Vorsprung (≥ 3 Stimmen und
-    // mindestens doppelt so viele wie der Zweitplatzierte) und grob passend
-    // (≤ 25 %: Ballaststoffe/Zuckeralkohole verschieben die Faustformel um
-    // höchstens ~20 %; „KH 8“ statt 33 beim Ketchup wären 75 %)
-    const klar = OCR_FELDER.every(k => rang[k].length && rang[k][0][1].n >= 3
-                                       && rang[k][0][1].n >= 2 * (rang[k][1]?.[1].n ?? 0));
-    return { werte, bestaetigt: klar && ocrPlausibel(werte, 0.25) };
+    return beste ? { werte: { ...werte, ...beste.w }, bestaetigt: true } : { werte, bestaetigt: false };
 }
 
 // Echte Packungen weichen ≤ 4 % ab (Lindt, Nutella, Haribo, Ketchup …); 15 %
@@ -1617,6 +1608,10 @@ function extractNaehrwert(line) {
         if (!hatEinheit && raw.length > 1 && raw.endsWith('9') && /\.\d9$/.test(raw)) {
             raw = raw.slice(0, -1).replace(/\.$/, '');
         }
+        // Fett, KH und Eiweiß stehen laut EU-Rundungsregeln mit höchstens einer
+        // Nachkommastelle auf der Packung, Salz mit zwei – „0,22“ in der
+        // Eiweiß-Zeile ist fast sicher der Salzwert der Nachbarzeile.
+        if (/\.\d\d/.test(raw)) continue;
         const v = parseFloat(raw);
         // Bezugsgröße „pro 100 g“ in derselben Zeile ist kein Nährwert
         if (v === 100 && /(?:pro|je|per)\s*$/i.test(line.slice(0, m.index))) continue;
@@ -1702,19 +1697,28 @@ function parseNaehrwerte(text) {
         result.portion = parseFloat(portionMatch[1]);
     }
 
+    // Bezeichnungen (inkl. gängiger Fremdsprachen mehrsprachiger Packungen)
+    const istEiweiss = l => l.includes('eiwei') || l.includes('protein') || zeileBeginntMit(l, ['eiweiß', 'eiweiss'], 2);
+    const istFett    = l => (l.includes('fett') || /\b(?:fat|grassi|vetten)\b/.test(l) || l.includes('matières grasses')
+                             || zeileBeginntMit(l, ['fett'], 2))
+                            && !/^\W*davon\b/.test(l) && !/ges[äa]t+ig|fetts[äa]ure|saturate|trans/.test(l);
+    const istKh      = l => l.includes('kohlenh') || l.includes('carbohydrate') || /\bkh\b/.test(l)
+                            || /glucides|koolhydrat|kolhydrat|kulhydrat|carboidrati/.test(l)
+                            || zeileBeginntMit(l, ['kohlenhydrate'], 3);
+    const istIrgendeine = l => istEiweiss(l) || istFett(l) || istKh(l)
+                            || /zucker|sugar|salz|salt|ballast|fibre|fiber|energie|brennwert|ges[äa]tt|saturate/.test(l);
+    const felder = [['eiweiss', istEiweiss], ['fett', istFett], ['kh', istKh]];
     lines.forEach((line, i) => {
         const l = line.toLowerCase();
-        if (result.eiweiss === '' && (l.includes('eiwei') || l.includes('protein')
-                                || zeileBeginntMit(l, ['eiweiß', 'eiweiss'], 2))) {
-            const v = extractNaehrwert(line); if (v !== null) { result.eiweiss = v; result.zeilen.eiweiss = i; }
-        }
-        if (result.fett === '' && (l.includes('fett') || /\bfat\b/.test(l) || zeileBeginntMit(l, ['fett'], 2))
-            && !/^\W*davon\b/.test(l) && !/ges[äa]t+ig|fetts[äa]ure|saturate|trans/.test(l)) {
-            const v = extractNaehrwert(line); if (v !== null) { result.fett = v; result.zeilen.fett = i; }
-        }
-        if (result.kh === '' && (l.includes('kohlenh') || l.includes('carbohydrate') || /\bkh\b/.test(l)
-                           || zeileBeginntMit(l, ['kohlenhydrate'], 3))) {
-            const v = extractNaehrwert(line); if (v !== null) { result.kh = v; result.zeilen.kh = i; }
+        for (const [feld, ist] of felder) {
+            if (result[feld] !== '' || !ist(l)) continue;
+            let v = extractNaehrwert(line), quelle = i;
+            // Lange (mehrsprachige) Bezeichnung über zwei Zeilen: Wert steht in
+            // der Folgezeile, sofern dort keine andere Nährstoff-Bezeichnung beginnt
+            if (v === null && lines[i + 1] !== undefined && !istIrgendeine(lines[i + 1].toLowerCase())) {
+                v = extractNaehrwert(lines[i + 1]); quelle = i + 1;
+            }
+            if (v !== null) { result[feld] = v; result.zeilen[feld] = quelle; }
         }
     });
 
