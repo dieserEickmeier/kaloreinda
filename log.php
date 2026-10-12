@@ -302,6 +302,8 @@ renderHeader('Erfassen', 'log');
                             border-bottom:3px solid var(--carb);border-left:3px solid var(--carb);border-radius:0 0 0 4px;"></div>
                 <div style="position:absolute;bottom:0;right:0;width:22px;height:22px;
                             border-bottom:3px solid var(--carb);border-right:3px solid var(--carb);border-radius:0 0 4px 0;"></div>
+                <!-- Erkennungs-Overlay: gelesene Textstellen + Zeilen der Werte -->
+                <div id="ocrBoxen" class="ocr-boxen"></div>
                 <!-- Hinweistext im Rahmen -->
                 <div style="position:absolute;bottom:.5rem;left:.5rem;right:.5rem;text-align:center;
                             font-size:.7rem;color:rgba(167,139,250,.8);">
@@ -1159,10 +1161,50 @@ async function ocrAnalyzeFrame() {
                        0, 0, canvas.width, canvas.height);
 
     // 3. OCR: Detection + Recognition, flach mit Boxen
-    const items = await ocrEngine.scan(canvas);
-    const text = ocrZeilenBilden(items).join('\n');
+    const items  = (await ocrEngine.scan(canvas)).filter(i => i.text.trim());
+    const zeilen = ocrZeilenBilden(items);
+    const werte  = parseNaehrwerte(zeilen.map(z => z.text).join('\n'));
+    return { werte, zeilen, w: canvas.width, h: canvas.height };
+}
 
-    return parseNaehrwerte(text);
+// ── Erkennungs-Overlay ───────────────────────────────────────────────────
+// Der analysierte Ausschnitt ist genau der Scan-Rahmen, OCR-Koordinaten
+// lassen sich daher als Prozentwerte direkt über den Rahmen legen. Dezent:
+// alle gelesenen Textstellen; farbig: die Zeilen, aus denen ein Wert stammt
+// (Farben wie die Chips). Ohne neue Analyse verblassen die Markierungen –
+// sie hinken dem Live-Bild ~1 s hinterher. Farben je Feld: app.css.
+let _ocrBoxenTimer = null;
+
+function ocrBoxenZeigen(ana) {
+    const el = document.getElementById('ocrBoxen');
+    const pct = (b) => `left:${b.x / ana.w * 100}%;top:${b.y / ana.h * 100}%;`
+                     + `width:${b.w / ana.w * 100}%;height:${b.h / ana.h * 100}%;`;
+    let html = '';
+    for (const z of ana.zeilen) for (const b of z.boxen) html += `<div class="ocr-box" style="${pct(b)}"></div>`;
+    // Wertzeilen als entlang der Schräglage gedrehtes Band – ein achsen-
+    // paralleler Kasten würde bei schiefem Etikett in die Nachbarzeile ragen.
+    // Die Skalierung Bild→Rahmen ist in x und y gleich, der Winkel bleibt.
+    for (const [feld, idx] of Object.entries(ana.werte.zeilen || {})) {
+        const m = ana.zeilen[idx]?.mitte;
+        if (!m) continue;
+        const pad = m.h * 0.25;
+        const len = Math.hypot(m.x2 - m.x1, m.y2 - m.y1) + 2 * pad, h = m.h + 2 * pad;
+        const cx = (m.x1 + m.x2) / 2, cy = (m.y1 + m.y2) / 2;
+        const winkel = Math.atan2(m.y2 - m.y1, m.x2 - m.x1);
+        html += `<div class="ocr-zeile" data-feld="${feld}" style="`
+              + pct({ x: cx - len / 2, y: cy - h / 2, w: len, h })
+              + `transform:rotate(${winkel}rad);"></div>`;
+    }
+    el.classList.remove('alt', 'erkannt');
+    el.innerHTML = html;
+    clearTimeout(_ocrBoxenTimer);
+    _ocrBoxenTimer = setTimeout(() => el.classList.add('alt'), 1600);
+}
+function ocrBoxenLeeren() {
+    clearTimeout(_ocrBoxenTimer);
+    const el = document.getElementById('ocrBoxen');
+    el.classList.remove('alt', 'erkannt');
+    el.innerHTML = '';
 }
 
 // ── Live-Erkennung ───────────────────────────────────────────────────────
@@ -1214,12 +1256,14 @@ async function ocrLiveLoop() {
     ocrSta.textContent = 'Suche Nährwerte…';
     dot.style.animation = 'zxingPulse 1.4s ease-in-out infinite';
 
-    const uebernehmen = (werte) => {
-        const flash = document.getElementById('ocrFlash');
-        flash.style.opacity = '0.7';
-        setTimeout(() => flash.style.opacity = '0', 120);
+    // Erfolg kurz im Bild zeigen (Markierungen grün), dann ins Formular
+    const uebernehmen = async (werte) => {
         frame.style.borderColor = 'var(--accent)';
-        ocrSta.textContent = '✓ Erkannt – bitte prüfen';
+        document.getElementById('ocrBoxen').classList.add('erkannt');
+        ocrSta.textContent = '✓ Erkannt';
+        dot.style.animation = '';
+        await warte(450);
+        if (!aktiv()) return;             // inzwischen geschlossen/„Selbst eintragen“
         ocrStop();
         showOcrResult(werte, true);
     };
@@ -1228,7 +1272,10 @@ async function ocrLiveLoop() {
         if (document.hidden || vid.readyState < 2 || !vid.videoWidth) { await warte(300); continue; }
         let p;
         try {
-            p = await ocrAnalyzeFrame();
+            const ana = await ocrAnalyzeFrame();
+            if (!aktiv()) return;
+            p = ana.werte;
+            ocrBoxenZeigen(ana);
         } catch (e) {
             console.warn('[OCR] Analyse', e);
             if (!aktiv()) return;
@@ -1246,7 +1293,7 @@ async function ocrLiveLoop() {
         gleich = key && key === letzterKey ? gleich + 1 : (key ? 1 : 0);
         letzterKey = key;
         if (komplett && ((gleich >= 2 && ocrPlausibel(p)) || gleich >= 3)) {
-            uebernehmen({ ...p, portion: p.portion !== '' ? p.portion : (bester.portion ?? '') });
+            await uebernehmen({ ...p, portion: p.portion !== '' ? p.portion : (bester.portion ?? '') });
             return;
         }
 
@@ -1274,6 +1321,7 @@ function ocrCapture() {
 // alle dieselbe Steigung; Paare aus Nachbarzeilen streuen. Die häufigste
 // Steigung (Histogramm-Spitze) ist die Schräglage. Danach Zeilen entlang
 // dieser Steigung clustern und Boxen in Zeilenrichtung sortieren.
+// Ergebnis: [{ text, boxen: [{x,y,w,h}], mitte }] in Lesereihenfolge
 function ocrZeilenBilden(items) {
     if (!items.length) return [];
     const pts = items.map(i => ({ ...i, cx: i.x + i.w / 2, cy: i.y + i.h / 2 }));
@@ -1305,7 +1353,19 @@ function ocrZeilenBilden(items) {
         if (z && Math.abs(p.yr - z.yr) < hMed * 0.55) { z.teile.push(p); z.yr = (z.yr * (z.teile.length - 1) + p.yr) / z.teile.length; }
         else zeilen.push({ yr: p.yr, teile: [p] });
     }
-    return zeilen.map(z => z.teile.sort((a, b) => a.cx - b.cx).map(p => p.text).join(' '));
+    // mitte: Mittellinie der Zeile entlang der Schräglage (für das Overlay)
+    return zeilen.map(z => {
+        const teile = z.teile.sort((a, b) => a.cx - b.cx);
+        const x1 = Math.min(...teile.map(p => p.x)), x2 = Math.max(...teile.map(p => p.x + p.w));
+        return {
+            text:  teile.map(p => p.text).join(' '),
+            boxen: teile.map(({ x, y, w, h }) => ({ x, y, w, h })),
+            // Höhe: kleinste Box der Zeile – kurze Wörter sind durch die
+            // Schräglage am wenigsten aufgebläht (achsenparallele Boxen)
+            mitte: { x1, y1: z.yr + slope * (x1 - minX), x2, y2: z.yr + slope * (x2 - minX),
+                     h: Math.min(...teile.map(p => p.h)) },
+        };
+    });
 }
 
 // OCR-Text normalisieren: deutsches Komma → Punkt, O/o/l zwischen bzw. vor
@@ -1362,8 +1422,10 @@ function zeileBeginntMit(l, begriffe, maxFehler) {
 }
 
 function parseNaehrwerte(text) {
-    const result = { kcal: '', eiweiss: '', fett: '', kh: '', portion: '' };
+    // zeilen: Feld → Index der Zeile, aus der der Wert stammt (für das Overlay)
+    const result = { kcal: '', eiweiss: '', fett: '', kh: '', portion: '', zeilen: {} };
     const clean = normalizeOcrText(text);
+    const lines = clean.split('\n').map(l => l.trim()).filter(Boolean);
 
     // ── kcal: explizites „N kcal“ hat Priorität, dann „kJ/kcal 1046/249“,
     // zuletzt nur kJ → umrechnen (÷ 4,184).
@@ -1383,6 +1445,10 @@ function parseNaehrwerte(text) {
     } else if (kcalWerte.length) {
         result.kcal = kcalWerte[0];
     }
+    if (result.kcal !== '') {
+        const i = lines.findIndex(l => /k\s?j|k\s?cal/i.test(l));
+        if (i >= 0) result.zeilen.kcal = i;
+    }
 
     // ── Portionsgröße: „pro Portion (30 g)“, „1 Portion = 30 g“, „pro 30 g“
     // „port\w{0,3}n“ deckt auch verlesene Formen wie „Porton“ ab
@@ -1392,21 +1458,21 @@ function parseNaehrwerte(text) {
         result.portion = parseFloat(portionMatch[1]);
     }
 
-    for (const line of clean.split('\n').map(l => l.trim()).filter(Boolean)) {
+    lines.forEach((line, i) => {
         const l = line.toLowerCase();
         if (result.eiweiss === '' && (l.includes('eiwei') || l.includes('protein')
                                 || zeileBeginntMit(l, ['eiweiß', 'eiweiss'], 2))) {
-            const v = extractNaehrwert(line); if (v !== null) result.eiweiss = v;
+            const v = extractNaehrwert(line); if (v !== null) { result.eiweiss = v; result.zeilen.eiweiss = i; }
         }
         if (result.fett === '' && (l.includes('fett') || /\bfat\b/.test(l) || zeileBeginntMit(l, ['fett'], 2))
             && !/^\W*davon\b/.test(l) && !/ges[äa]t+ig|fetts[äa]ure|saturate|trans/.test(l)) {
-            const v = extractNaehrwert(line); if (v !== null) result.fett = v;
+            const v = extractNaehrwert(line); if (v !== null) { result.fett = v; result.zeilen.fett = i; }
         }
         if (result.kh === '' && (l.includes('kohlenh') || l.includes('carbohydrate') || /\bkh\b/.test(l)
                            || zeileBeginntMit(l, ['kohlenhydrate'], 3))) {
-            const v = extractNaehrwert(line); if (v !== null) result.kh = v;
+            const v = extractNaehrwert(line); if (v !== null) { result.kh = v; result.zeilen.kh = i; }
         }
-    }
+    });
     return result;
 }
 
@@ -1525,6 +1591,7 @@ function ocrStop() {
     if (typeof scanOverlayHide === 'function') scanOverlayHide();
     _ocrRunning = false;
     _ocrSession++;
+    ocrBoxenLeeren();
     document.getElementById('ocrDot').style.animation = '';
     document.getElementById('ocrFrame').style.borderColor = 'var(--carb)';
     if (_ocrStream) { _ocrStream.getTracks().forEach(t => t.stop()); _ocrStream = null; }
