@@ -303,7 +303,7 @@ async function saveGewicht() {
     try {
         const r = await fetch('/api/weight.php', {
             method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ kg: val, datum: new Date().toISOString().split('T')[0] }),
+            body: JSON.stringify({ kg: val, datum: heuteISO() }),
         });
         const d = await r.json();
         if (d.ok) {
@@ -485,7 +485,7 @@ async function saveAktiv() {
     try {
         const r = await fetch('/api/activity.php', {
             method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ kcal, bezeichnung: bez, datum: new Date().toISOString().split('T')[0] }),
+            body: JSON.stringify({ kcal, bezeichnung: bez, datum: heuteISO() }),
         });
         const d = await r.json();
         if (d.ok) {

@@ -20,7 +20,7 @@ if ($q === '') {
     // Produkte die ausschließlich über Gerichte eingetragen wurden erscheinen
     // dadurch nicht in den häufigen Lebensmitteln.
     $stmt = $db->prepare("
-        SELECT p.id, p.name, p.kcal_100g, p.eiweiss_100g, p.fett_100g, p.kh_100g, p.portion_g, p.quelle,
+        SELECT p.id, p.name, p.kcal_100g, p.eiweiss_100g, p.fett_100g, p.kh_100g, p.portion_g, p.quelle, p.ersteller_id,
                COUNT(*) AS anzahl
         FROM eintraege e
         JOIN produkte p ON p.id = e.produkt_id
@@ -40,7 +40,7 @@ if ($q === '') {
     // Bei kleinen Tabellen (<10k Produkte) unkritisch; bei Wachstum auf
     // MATCH...AGAINST (FULLTEXT ft_name, siehe schema.sql) umstellen.
     $stmt = $db->prepare("
-        SELECT p.id, p.name, p.kcal_100g, p.eiweiss_100g, p.fett_100g, p.kh_100g, p.portion_g, p.quelle,
+        SELECT p.id, p.name, p.kcal_100g, p.eiweiss_100g, p.fett_100g, p.kh_100g, p.portion_g, p.quelle, p.ersteller_id,
                COUNT(e.id) AS anzahl
         FROM produkte p
         LEFT JOIN eintraege e ON e.produkt_id = p.id AND e.user_id = ?

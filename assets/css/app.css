@@ -797,57 +797,6 @@ a { color: var(--accent); }
     display: none !important;
 }
 
-/* ── Live-Scan Modus ───────────────────────────────────────────
-   WICHTIG: Wir überschreiben hier absichtlich NICHT width/height des
-   Video-Elements mit !important. html5-qrcode berechnet seine Scan-Zone
-   (qrbox) relativ zu der Größe, die es dem Video SELBST per JS zuweist.
-   Erzwingen wir per CSS eine andere Größe, verzerrt das Bild und/oder die
-   Scan-Zone weicht vom sichtbaren Rahmen ab. */
-#liveQrReader {
-    display: flex !important;
-    justify-content: center !important;
-    align-items: center !important;
-    background: #000;
-    position: relative;
-    border: none !important;
-    width: 100% !important;
-    /* Begrenzung über max-width statt max-height: aspect-ratio bleibt die
-       einzige Höhen-bestimmende Regel (kein Konflikt). */
-    max-width: 480px;
-    margin: 0 auto;
-    /* NUR aspect-ratio, KEIN max-height – 9:16 ist das einzige
-       Seitenverhältnis, das nachweislich zuverlässig funktioniert. */
-    aspect-ratio: 9 / 16;
-    overflow: hidden;
-}
-#liveQrReader video {
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    object-fit: cover !important;
-    display: block !important;
-}
-#liveQrReader__dashboard,
-#liveQrReader__status_span,
-#liveQrReader__camera_selection,
-#liveQrReader__filescan_input,
-#liveQrReader img {
-    display: none !important;
-}
-#liveQrReader__scan_region {
-    box-shadow: 0 0 0 2000px rgba(0,0,0,.5);
-}
-
-/* ── Scanner (Legacy-Rahmen) ─────────────────────────────────────── */
-.scanner-wrap {
-    position: relative;
-    margin: 1rem .85rem;
-    border-radius: 22px;
-    overflow: hidden;
-    background: #000;
-}
 #video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .scanner-overlay {
     position: absolute; inset: 0;

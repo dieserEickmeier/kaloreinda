@@ -2,6 +2,13 @@
 
 // ── KalorienTracker – App-weite Hilfsfunktionen ──────────────────────────
 
+// Heutiges Datum (YYYY-MM-DD) in lokaler Zeit. Nicht toISOString() nehmen:
+// das ist UTC, Einträge zwischen 0 und 2 Uhr landeten sonst am Vortag.
+function heuteISO() {
+    const d = new Date(), pad = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
 document.addEventListener('click', (e) => {
     const btn = e.target.closest('button, a.scan-btn');
     if (btn && !btn.dataset.noBlock) {
@@ -407,7 +414,7 @@ async function refreshHeute() {
 async function checkAktivKcal() {
     if (!kcalRingWrap) return;
     try {
-        const r = await fetch('/api/activity.php?datum=' + new Date().toISOString().slice(0, 10), { cache: 'no-store' });
+        const r = await fetch('/api/activity.php?datum=' + heuteISO(), { cache: 'no-store' });
         const d = await r.json();
         if (!d.ok) return;
         const aktuell = parseInt(kcalRingWrap.dataset.aktivKcal || '0', 10);

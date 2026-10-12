@@ -116,10 +116,10 @@ kalorientracker/
 ## Features
 
 - **Mehrbenutzerfähig** – Session-basierte Anmeldung, alle Daten pro Nutzer getrennt
-- **Drei Scan-Modi**:
-  - **Live-Scan** via html5-qrcode (kontinuierlicher Kamera-Stream, sofortige Erkennung)
-  - **Barcode-Foto** als Fallback (nutzt die native Kamera-App, kein Dauerzugriff nötig)
-  - **Nährwerttabelle fotografieren** → GPT-4o Vision extrahiert die Werte automatisch
+- **Erfassen per Scan**:
+  - **Live-Scan** via ZXing (WASM, kontinuierlicher Kamera-Stream, EAN/UPC)
+  - **Nährwerttabelle scannen** → PaddleOCR (lokal im Browser) liest kcal, Makros und Portionsgröße aus
+  - **Unbekannter Barcode** → direkt per Nährwert-Scan oder manuell anlegen, der Barcode wird mitgespeichert
 - **Manuelle Barcode-Eingabe** als zusätzlicher Fallback
 - **Automatischer Cache** – gescannte Produkte werden lokal gespeichert; OpenFoodFacts-Treffer
   werden nach 90 Tagen automatisch aufgefrischt, damit spätere Korrekturen am Originalprodukt ankommen

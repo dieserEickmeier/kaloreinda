@@ -1,7 +1,9 @@
 // ── KalorienTracker – Barcode-Live-Scanner (global, auf jeder Seite) ─────
 // Wird über den Scan-Button der Navigation geöffnet. „Scanner schließen“
-// schließt nur das Overlay, die aktuelle Seite bleibt. Bei einem Treffer:
-//   · auf log.php setzt die Seite window.onScanProduct → Produkt-Sheet direkt
+// schließt nur das Overlay, die aktuelle Seite bleibt. Bei einem Treffer
+// bzw. unbekanntem Barcode:
+//   · auf log.php setzt die Seite window.onScanProduct / onScanNotFound
+//     → Produkt-Sheet bzw. „nicht gefunden – anlegen“ direkt
 //   · überall sonst → Weiterleitung nach /log.php?barcode=<code>
 // Die ZXing-Bibliothek wird erst beim ersten Scannen geladen.
 
@@ -37,6 +39,32 @@ function loadZxing() {
 function onScanFound(product, code) {
     if (typeof window.onScanProduct === 'function') window.onScanProduct(product, code);
     else location.href = '/log.php?barcode=' + encodeURIComponent(code);
+}
+
+// Barcode unbekannt: auf log.php bietet die Seite „Nährwerte scannen“ /
+// „Manuell anlegen“ mit diesem Barcode an, überall sonst dorthin wechseln.
+function scanNichtGefunden(code) {
+    if (typeof window.onScanNotFound === 'function') window.onScanNotFound(code);
+    else location.href = '/log.php?barcode=' + encodeURIComponent(code);
+}
+
+// Lebensmittel tragen EAN/UPC – nur diese Formate suchen ist schneller und
+// verhindert Fehltreffer durch QR-/DataMatrix-Codes auf der Packung.
+const ZXING_FORMATS = ['EAN-13', 'EAN-8', 'UPC-A', 'UPC-E'];
+
+// Auszuwertender Bildbereich in Video-Koordinaten: volle Breite, vertikal ein
+// großzügiges Band um den sichtbaren Rahmen (Barcodes werden selten exakt im
+// Rahmen gehalten). Video ist object-fit:contain → ggf. Letterbox abziehen.
+function zxingScanRegion(vid, frameEl) {
+    const W = vid.videoWidth, H = vid.videoHeight;
+    if (!frameEl) return {x: 0, y: 0, w: W, h: H};
+    const c = vid.getBoundingClientRect(), f = frameEl.getBoundingClientRect();
+    const scale = Math.min(c.width / W, c.height / H);
+    const offY  = (c.height - H * scale) / 2;
+    const midY  = (f.top + f.height / 2 - c.top - offY) / scale;
+    const bandH = Math.min(H, Math.max(f.height / scale * 2, H * 0.4));
+    const y     = Math.max(0, Math.min(H - bandH, midY - bandH / 2));
+    return {x: 0, y: Math.round(y), w: W, h: Math.round(bandH)};
 }
 
 // ── ZXing WASM Beta Live-Scanner ──────────────────────────────────────────
@@ -77,7 +105,7 @@ async function zxingStart() {
     // das Modul nach einem vorherigen Stop noch korrekt arbeitet
     try {
         await loadZxing();
-        await ZXingWASM.readBarcodesFromImageData(new ImageData(1, 1), {formats: []});
+        await ZXingWASM.readBarcodesFromImageData(new ImageData(1, 1), {formats: ZXING_FORMATS});
     } catch(e) {
         sta.textContent = 'WASM Fehler: ' + e.message;
         return;
@@ -98,14 +126,18 @@ async function zxingStart() {
 
         async function loop() {
             if (!_zxingActive) return;
-            if (vid.readyState >= 2) {
-                canvas.width  = vid.videoWidth;
-                canvas.height = vid.videoHeight;
-                ctx.drawImage(vid, 0, 0);
+            if (vid.readyState >= 2 && vid.videoWidth) {
+                // Nur das Band um den Rahmen auswerten, max. 1280 px breit
+                const reg = zxingScanRegion(vid, document.getElementById('zxingFrame'));
+                const k   = Math.min(1, 1280 / reg.w);
+                const cw  = Math.round(reg.w * k), ch = Math.round(reg.h * k);
+                if (canvas.width !== cw)  canvas.width  = cw;
+                if (canvas.height !== ch) canvas.height = ch;
+                ctx.drawImage(vid, reg.x, reg.y, reg.w, reg.h, 0, 0, cw, ch);
                 try {
                     const results = await ZXingWASM.readBarcodesFromImageData(
-                        ctx.getImageData(0, 0, canvas.width, canvas.height),
-                        {formats: [], tryHarder: true, tryRotate: true, tryInvert: true}
+                        ctx.getImageData(0, 0, cw, ch),
+                        {formats: ZXING_FORMATS, tryHarder: true, tryRotate: true, tryInvert: true}
                     );
                     if (results && results.length > 0) {
                         const code = results[0].text;
@@ -133,14 +165,11 @@ async function zxingStart() {
                             // kurz warten damit Erfolgs-Animation sichtbar ist
                             await new Promise(r => setTimeout(r, 300));
                             try {
-                                const sta = document.getElementById('zxingStatus');
-                                const dot = document.getElementById('zxingDot');
-
                                 // ── Zentrales Such-Overlay ─────────────────
                                 scanOverlayShow('Suche „' + code + '" in Datenbank…', {
                                     icon: 'bi-upc-scan', color: 'var(--accent)',
                                 });
-                                if (sta) sta.textContent = 'Suche…';
+                                sta.textContent = 'Suche…';
 
                                 document.getElementById('notFound')?.classList.add('d-none');
                                 let d;
@@ -155,19 +184,18 @@ async function zxingStart() {
                                     // ── Gefunden: Scanner schließen, Produkt übergeben ──
                                     zxingStop();
                                     onScanFound(d.product, code);
-                                } else {
-                                    await _zxingRetry(sta, dot, '✗ Barcode nicht in DB');
-                                    // Loop neu starten
+                                } else if (d.offline) {
+                                    // OpenFoodFacts nicht erreichbar → gleich nochmal versuchen
+                                    await _zxingRetry(sta, dot, '✗ OpenFoodFacts nicht erreichbar');
                                     if (_zxingActive) _zxingFrame = requestAnimationFrame(loop);
-                                    return;
+                                } else {
+                                    // Unbekannt: Scanner schließen, Anlegen anbieten
+                                    zxingStop();
+                                    scanNichtGefunden(code);
                                 }
                             } catch(apiE) {
-                                const sta = document.getElementById('zxingStatus');
-                                const dot = document.getElementById('zxingDot');
                                 await _zxingRetry(sta, dot, '✗ Verbindungsfehler');
-                                // Loop neu starten
                                 if (_zxingActive) _zxingFrame = requestAnimationFrame(loop);
-                                return;
                             }
                             return;
                         }

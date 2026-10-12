@@ -1,6 +1,7 @@
 <?php
 // Speichert/aktualisiert Produkte in der produkte-Tabelle.
-// POST  – neues manuelles Produkt anlegen
+// POST  – neues manuelles Produkt anlegen (optional mit Barcode, wenn ein
+//         gescannter Code nicht gefunden und das Produkt selbst erfasst wurde)
 // PATCH – portion_g für ein bestehendes Produkt nachträglich setzen
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
@@ -59,6 +60,18 @@ $fett     = max(0, (float)($body['fett_100g']    ?? 0));
 $kh       = max(0, (float)($body['kh_100g']      ?? 0));
 $portionG = (isset($body['portion_g']) && is_numeric($body['portion_g']) && (float)$body['portion_g'] > 0)
     ? (float)$body['portion_g'] : null;
+$barcode  = trim((string)($body['barcode'] ?? '')) ?: null;
+if ($barcode !== null && !preg_match('/^\d{5,20}$/', $barcode)) {
+    echo json_encode(['ok' => false, 'error' => 'Ungültiger Barcode']);
+    exit;
+}
+
+// execute() mit abgefangenen mysqli-Exceptions (PHP ≥ 8.1 wirft standardmäßig,
+// ältere Versionen liefern false) – nötig, um UNIQUE(barcode) sauber zu melden.
+function tryExecute(mysqli_stmt $stmt): bool {
+    try { return $stmt->execute(); }
+    catch (mysqli_sql_exception $e) { return false; }
+}
 
 if (!$name || !$kcal) {
     echo json_encode(['ok' => false, 'error' => 'Name und Kalorien erforderlich']);
@@ -69,26 +82,42 @@ if (!$name || !$kcal) {
 // Scope auf ersteller_id: sonst würde ein Nutzer beim Anlegen unbemerkt das
 // Produkt eines anderen Nutzers treffen und wiederverwenden.
 $check = $db->prepare("
-    SELECT id FROM produkte
+    SELECT id, barcode FROM produkte
     WHERE name = ? AND quelle = 'manuell' AND ersteller_id = ? AND ROUND(kcal_100g) = ROUND(?)
     LIMIT 1
 ");
 $check->bind_param('sid', $name, $userId, $kcal);
 $check->execute();
 $existing = $check->get_result()->fetch_assoc();
+if ($existing && $barcode !== null && $existing['barcode'] !== null && $existing['barcode'] !== $barcode) {
+    // Gleiches Produkt, aber schon mit anderem Barcode verknüpft → neu anlegen
+    $existing = null;
+}
 if ($existing) {
+    // Barcode nachtragen, damit der nächste Scan das Produkt direkt findet
+    if ($barcode !== null && $existing['barcode'] === null) {
+        $upd = $db->prepare("UPDATE produkte SET barcode = ? WHERE id = ?");
+        $upd->bind_param('si', $barcode, $existing['id']);
+        if (!tryExecute($upd)) {
+            echo json_encode(['ok' => false, 'error' => 'Barcode ist bereits einem anderen Produkt zugeordnet']);
+            exit;
+        }
+    }
     echo json_encode(['ok' => true, 'id' => $existing['id'], 'new' => false]);
     exit;
 }
 
 $stmt = $db->prepare("
     INSERT INTO produkte (barcode, name, kcal_100g, eiweiss_100g, fett_100g, kh_100g, portion_g, quelle, ersteller_id)
-    VALUES (NULL, ?, ?, ?, ?, ?, ?, 'manuell', ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'manuell', ?)
 ");
-$stmt->bind_param('sdddddi', $name, $kcal, $eiweiss, $fett, $kh, $portionG, $userId);
+$stmt->bind_param('ssdddddi', $barcode, $name, $kcal, $eiweiss, $fett, $kh, $portionG, $userId);
 
-if ($stmt->execute()) {
+if (tryExecute($stmt)) {
     echo json_encode(['ok' => true, 'id' => $db->insert_id, 'new' => true]);
+} elseif ($stmt->errno === 1062 || $db->errno === 1062) {
+    // UNIQUE(barcode): Code wurde inzwischen von jemand anderem angelegt/gescannt
+    echo json_encode(['ok' => false, 'error' => 'Barcode ist bereits einem anderen Produkt zugeordnet']);
 } else {
     error_log('produkt_save.php POST: ' . $db->error);
     echo json_encode(['ok' => false, 'error' => 'Datenbankfehler']);

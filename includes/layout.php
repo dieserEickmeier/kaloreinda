@@ -43,7 +43,7 @@ function renderHeader(string $title = APP_NAME, string $activeNav = ''): void {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/space-grotesk@5/index.css">
-    <link rel="stylesheet" href="/assets/css/app.css?v=43">
+    <link rel="stylesheet" href="/assets/css/app.css?v=44">
     <meta name="csrf-token" content="<?= htmlspecialchars(csrfToken()) ?>">
     <script>
     // Hängt den CSRF-Token automatisch an alle schreibenden Requests an die
@@ -294,8 +294,8 @@ function renderFooter(string $activeNav = ''): void {
 </nav>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
-<script src="/assets/js/app.js?v=9" defer></script>
-<script src="/assets/js/scanner.js?v=2" defer></script>
+<script src="/assets/js/app.js?v=10" defer></script>
+<script src="/assets/js/scanner.js?v=3" defer></script>
 <script>
 (function() {
     // Misst die echte safe-area-inset-bottom via CSS-Trick

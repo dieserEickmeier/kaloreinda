@@ -562,7 +562,7 @@ document.getElementById('gerichtEintragenModal').addEventListener('click', funct
 document.getElementById('btnGerichtEintragen').addEventListener('click', async () => {
     if (!_currentGericht) return;
     const val   = parseFloat(document.getElementById('gerichtEintragenPortionen').value) || 1;
-    const datum = new Date().toISOString().slice(0, 10);
+    const datum = heuteISO();
     const payload = { gericht_id: _currentGericht.id, datum };
     if (_gerichtModus === 'gramm') payload.menge_g = val;
     else                           payload.portionen = val;

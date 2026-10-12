@@ -25,53 +25,90 @@ if (!$code || !preg_match('/^\d{5,20}$/', $code)) {
 $db = db();
 
 // ─── 1. Lokale DB prüfen ──────────────────────────────────────────────────
-// Cache-Alterung: ein Treffer wird nur verwendet, wenn er entweder manuell
+// Cache-Alterung: ein Treffer wird direkt verwendet, wenn er manuell
 // angelegt wurde (quelle='manuell' – es gibt keine externe Quelle, von der
 // wir auffrischen könnten) ODER jünger als 90 Tage ist. Ältere
-// OpenFoodFacts-Einträge werden stillschweigend neu abgerufen, damit
-// spätere Korrekturen am Originalprodukt (z.B. Rezepturänderung) irgendwann
-// ankommen, statt für immer auf dem ersten Scan-Ergebnis sitzen zu bleiben.
+// OpenFoodFacts-Einträge werden neu abgerufen, damit spätere Korrekturen am
+// Originalprodukt (z.B. Rezepturänderung) irgendwann ankommen. Fehlt nur die
+// Portionsgröße, wird höchstens wöchentlich nachgefragt – sonst ginge jeder
+// Scan eines Produkts ohne Portionsangabe erneut an OpenFoodFacts.
+// Manuelle Produkte mit Barcode (aus „nicht gefunden → anlegen“) sind wie
+// der OpenFoodFacts-Cache für alle sichtbar: der Barcode ist eindeutig, ein
+// zweiter Nutzer könnte sonst kein eigenes Produkt dazu anlegen.
 $stmt = $db->prepare("
-    SELECT * FROM produkte
-    WHERE barcode = ?
-      AND (quelle = 'manuell' OR aktualisiert_am > DATE_SUB(NOW(), INTERVAL 90 DAY))
+    SELECT *,
+           (quelle = 'manuell' OR aktualisiert_am > DATE_SUB(NOW(), INTERVAL 90 DAY)) AS frisch,
+           (aktualisiert_am > DATE_SUB(NOW(), INTERVAL 7 DAY)) AS kuerzlich
+    FROM produkte WHERE barcode = ?
 ");
 $stmt->bind_param('s', $code);
 $stmt->execute();
-$row = $stmt->get_result()->fetch_assoc();
-if ($row) {
-    // Cache-Treffer: direkt zurückgeben — es sei denn, portion_g fehlt noch,
-    // dann holen wir die Daten frisch von OpenFoodFacts um sie nachzutragen.
-    if (!is_null($row['portion_g']) || $row['quelle'] === 'manuell') {
-        echo json_encode(['ok' => true, 'product' => $row, 'from' => 'cache']);
+$cached = $stmt->get_result()->fetch_assoc();
+if ($cached) {
+    $frisch    = (bool)$cached['frisch'];
+    $kuerzlich = (bool)$cached['kuerzlich'];
+    unset($cached['frisch'], $cached['kuerzlich']);
+    if ($cached['quelle'] === 'manuell'
+        || ($frisch && (!is_null($cached['portion_g']) || $kuerzlich))) {
+        echo json_encode(['ok' => true, 'product' => $cached, 'from' => 'cache']);
         exit;
     }
-    // portion_g fehlt → weiter zu OpenFoodFacts (UPDATE folgt unten)
+}
+
+// Veralteter Cache-Eintrag als Rückfall, falls OpenFoodFacts nicht antwortet
+// oder das Produkt dort inzwischen fehlt – besser alte Werte als gar keine.
+function cacheFallbackOder(?array $cached, string $error, bool $offline): void {
+    if ($cached) {
+        echo json_encode(['ok' => true, 'product' => $cached, 'from' => 'cache-veraltet']);
+    } else {
+        echo json_encode(['ok' => false, 'error' => $error, 'offline' => $offline]);
+    }
+    exit;
 }
 
 // ─── 2. OpenFoodFacts API ──────────────────────────────────────────────────
 // serving_quantity und serving_size explizit anfordern – bei fields-Parameter
 // liefert die v2-API NUR die genannten Felder, fehlende Felder kommen nie an.
-$url  = "https://world.openfoodfacts.org/api/v2/product/{$code}.json?fields=product_name,nutriments,brands,serving_quantity,serving_size";
+$url  = "https://world.openfoodfacts.org/api/v2/product/{$code}.json"
+      . "?fields=product_name,product_name_de,nutriments,brands,serving_quantity,serving_size";
+// OpenFoodFacts bittet um einen aussagekräftigen User-Agent mit Kontakt.
+// Kontakt optional über OFF_CONTACT in config.php.
+$ua   = 'Kaloreinda/1.0' . (defined('OFF_CONTACT') ? ' (' . OFF_CONTACT . ')' : '');
 $ctx  = stream_context_create(['http' => [
-    'timeout' => 6,
-    'header'  => "User-Agent: KalorienTracker/1.0 (contact@example.com)\r\n",
+    'timeout'       => 6,
+    'header'        => "User-Agent: {$ua}\r\n",
+    'ignore_errors' => true,   // 404 liefert ebenfalls JSON mit status=0
 ]]);
 
 $raw  = @file_get_contents($url, false, $ctx);
-$data = $raw ? json_decode($raw, true) : null;
-
-if (!$data || ($data['status'] ?? 0) !== 1) {
-    echo json_encode(['ok' => false, 'error' => 'Produkt nicht in OpenFoodFacts']);
-    exit;
+if ($raw === false) {
+    cacheFallbackOder($cached, 'OpenFoodFacts nicht erreichbar – bitte später nochmal versuchen', true);
+}
+$data = json_decode($raw, true);
+if (!is_array($data)) {
+    cacheFallbackOder($cached, 'OpenFoodFacts antwortet nicht korrekt – bitte später nochmal versuchen', true);
+}
+if (($data['status'] ?? 0) !== 1) {
+    cacheFallbackOder($cached, 'Produkt nicht in OpenFoodFacts', false);
 }
 
 $p    = $data['product'];
 $n    = $p['nutriments'] ?? [];
-$name = trim(($p['product_name'] ?? '') . ' ' . ($p['brands'] ?? ''));
+$pName = trim($p['product_name_de'] ?? '') ?: trim($p['product_name'] ?? '');
+$name = trim($pName . ' ' . ($p['brands'] ?? ''));
 $name = $name ?: 'Unbekanntes Produkt';
 
-$kcal    = (float)($n['energy-kcal_100g']    ?? $n['energy_100g'] ?? 0);
+// energy_100g ist bei OpenFoodFacts immer kJ – nur als Rückfall verwenden
+// und umrechnen, sonst landen kJ-Werte (Faktor ~4,2 zu hoch) als kcal im Cache.
+if (isset($n['energy-kcal_100g']) && is_numeric($n['energy-kcal_100g'])) {
+    $kcal = (float)$n['energy-kcal_100g'];
+} elseif (isset($n['energy-kj_100g']) && is_numeric($n['energy-kj_100g'])) {
+    $kcal = round((float)$n['energy-kj_100g'] / 4.184, 1);
+} elseif (isset($n['energy_100g']) && is_numeric($n['energy_100g'])) {
+    $kcal = round((float)$n['energy_100g'] / 4.184, 1);
+} else {
+    $kcal = 0.0;
+}
 $eiweiss = (float)($n['proteins_100g']        ?? 0);
 $fett    = (float)($n['fat_100g']             ?? 0);
 $kh      = (float)($n['carbohydrates_100g']   ?? 0);
@@ -90,33 +127,27 @@ if (!empty($p['serving_quantity']) && is_numeric($p['serving_quantity'])) {
 }
 
 // ─── In lokaler DB cachen ─────────────────────────────────────────────────
+// portion_g: COALESCE, damit eine von Nutzern nachgetragene Portionsgröße
+// nicht durch ein fehlendes serving_quantity auf NULL zurückfällt.
+// aktualisiert_am explizit setzen – ON UPDATE CURRENT_TIMESTAMP greift nur,
+// wenn sich ein Wert ändert, sonst würde ein unverändertes Produkt nach
+// 90 Tagen bei jedem Scan neu abgerufen.
 $ins = $db->prepare("
     INSERT INTO produkte (barcode, name, kcal_100g, eiweiss_100g, fett_100g, kh_100g, portion_g, quelle)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'openfoodfacts')
     ON DUPLICATE KEY UPDATE
         name=VALUES(name), kcal_100g=VALUES(kcal_100g),
         eiweiss_100g=VALUES(eiweiss_100g), fett_100g=VALUES(fett_100g),
-        kh_100g=VALUES(kh_100g), portion_g=VALUES(portion_g)
+        kh_100g=VALUES(kh_100g), portion_g=COALESCE(VALUES(portion_g), portion_g),
+        aktualisiert_am=NOW()
 ");
 $ins->bind_param('ssddddd', $code, $name, $kcal, $eiweiss, $fett, $kh, $portionG);
 $ins->execute();
-// Bei ON DUPLICATE KEY UPDATE ist insert_id=0 wenn ein bestehender Eintrag
-// aktualisiert wurde → echte ID per SELECT nachladen.
-$productId = $db->insert_id ?: (function() use ($db, $code) {
-    $s = $db->prepare("SELECT id FROM produkte WHERE barcode = ?");
-    $s->bind_param('s', $code);
-    $s->execute();
-    return (int)($s->get_result()->fetch_assoc()['id'] ?? 0);
-})();
 
-echo json_encode(['ok' => true, 'product' => [
-    'id'          => $productId,
-    'barcode'     => $code,
-    'name'        => $name,
-    'kcal_100g'   => $kcal,
-    'eiweiss_100g'=> $eiweiss,
-    'fett_100g'   => $fett,
-    'kh_100g'     => $kh,
-    'portion_g'   => $portionG,
-    'quelle'      => 'openfoodfacts',
-]]);
+// Gespeicherte Zeile zurückgeben (enthält id und ggf. die erhaltene portion_g)
+$s = $db->prepare("SELECT * FROM produkte WHERE barcode = ?");
+$s->bind_param('s', $code);
+$s->execute();
+$row = $s->get_result()->fetch_assoc();
+
+echo json_encode(['ok' => true, 'product' => $row, 'from' => 'openfoodfacts']);

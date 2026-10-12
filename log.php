@@ -40,8 +40,6 @@ renderHeader('Erfassen', 'log');
 
 <!-- ── Erfassen-Aktionen ───────────────────────────────────────── -->
 <div class="log-actions">
-    <!-- Barcode Foto (ausgeblendet, Funktion erhalten) -->
-    <button id="btnBarcodeFoto" style="display:none;"></button>
     <div class="action-row">
         <button id="btnBarcodeEingeben" class="action-tile" type="button">
             <i class="bi bi-keyboard"></i><span>Barcode<br>eingeben</span>
@@ -59,33 +57,23 @@ renderHeader('Erfassen', 'log');
     </div>
 </div>
 
-<!-- Versteckte Elemente für Barcode-Foto-Verarbeitung -->
-<input type="file" id="barcodeFileInput" accept="image/*" capture="environment" class="d-none">
-<canvas id="barcodeCanvas" style="display:none;"></canvas>
-
-<!-- Lade-Status -->
-<div id="barcodeStatus" class="log-status" style="display:none;">
-    <div class="spinner-border spinner-border-sm spinner-accent me-1"></div>
-    <span id="barcodeStatusText">Barcode wird erkannt…</span>
-</div>
-
-<!-- Fehler: nicht gefunden -->
+<!-- Barcode unbekannt: Produkt mit diesem Barcode anlegen -->
 <div id="notFound" class="d-none kt-card text-center" style="margin:.5rem .85rem 1rem;">
     <i class="bi bi-upc-scan" style="font-size:2rem;display:block;margin-bottom:.5rem;color:var(--muted);"></i>
     <div style="font-weight:700;margin-bottom:.4rem;">Produkt nicht gefunden</div>
-    <div class="text-muted" style="font-size:.85rem;line-height:1.5;">
-        Der Barcode konnte nicht erkannt oder das Produkt nicht in OpenFoodFacts gefunden werden.<br>
-        Versuche es nochmal mit besserem Licht oder gib das Produkt manuell ein.
+    <div class="text-muted" id="notFoundText" style="font-size:.85rem;line-height:1.5;margin-bottom:.9rem;">
+        Barcode <b id="notFoundCode" class="num"></b> ist weder in deiner Datenbank noch bei OpenFoodFacts.
+        Lege das Produkt einmal an – beim nächsten Scan wird es direkt gefunden.
     </div>
-</div>
-
-<!-- ── Live-Scan ─────────────────────────────────────────────── -->
-<div id="scanLiveArea" class="d-none">
-    <div class="scanner-wrap" id="liveScannerWrap"><div id="liveQrReader"></div></div>
-    <div id="liveScanStatus" class="text-center py-3 px-3"
-         style="color:var(--muted);font-size:.88rem;min-height:3rem;line-height:1.5;">
-        <i class="bi bi-camera-video me-1"></i> Kamera wird gestartet…
-    </div>
+    <button type="button" class="scan-btn mb-2" id="btnNfOcr">
+        <i class="bi bi-body-text"></i> Nährwerte scannen
+    </button>
+    <button type="button" class="scan-btn secondary mb-2" id="btnNfManuell">
+        <i class="bi bi-pencil-square"></i> Manuell anlegen
+    </button>
+    <button type="button" class="btn-link-muted" id="btnNfNochmal">
+        <i class="bi bi-arrow-repeat"></i> Nochmal scannen
+    </button>
 </div>
 
 <!-- ── Suche ─────────────────────────────────────────────────── -->
@@ -99,7 +87,7 @@ renderHeader('Erfassen', 'log');
 <strong>Häufige Gerichte</strong> – deine zuletzt angelegten Gerichte. Antippen zum Eintragen.<br><br>
 <strong>Was gespeichert wird:</strong><br>
 · Barcode-Scan – global, für alle Nutzer sichtbar<br>
-· Manuell erfassen – nur für dich sichtbar<br>
+· Manuell erfassen – nur für dich sichtbar (mit Barcode angelegt: für alle, die ihn scannen)<br>
 · Schneller Eintrag – wird nicht als Produkt gespeichert<br>
 · Gerichte – immer privat<br><br>
 <strong>„Nur anlegen“</strong> – Produkt speichern ohne Buchung für heute, z.B. beim Vorkochen für die Woche. Am jeweiligen Tag dann einfach über die Suche eintragen.
@@ -216,7 +204,10 @@ renderHeader('Erfassen', 'log');
 <div id="manualModal" class="kt-overlay" style="display:none;">
     <div class="sheet sheet--abs">
         <div class="sheet-head">
-            <h2>Lebensmittel manuell erfassen</h2>
+            <div>
+                <h2>Lebensmittel manuell erfassen</h2>
+                <p class="sheet-sub barcode-hint" style="display:none;"></p>
+            </div>
             <button type="button" class="pf-close" onclick="closeManualModal()" aria-label="Schließen"><i class="bi bi-x-lg"></i>
             </button>
         </div>
@@ -360,6 +351,7 @@ renderHeader('Erfassen', 'log');
                 <p class="sheet-sub">
                     Bitte prüfen und ggf. korrigieren
                 </p>
+                <p class="sheet-sub barcode-hint" style="display:none;"></p>
             </div>
             <button type="button" class="pf-close" onclick="closeOcrResult()" aria-label="Schließen"><i class="bi bi-x-lg"></i>
             </button>
@@ -399,11 +391,18 @@ renderHeader('Erfassen', 'log');
         <input type="hidden" id="ocrKh" value="0">
         <?php endif; ?>
 
-        <!-- Menge -->
-        <div class="mb-4">
-            <label class="form-label">Menge (g)</label>
-            <input type="number" id="ocrMenge" class="form-control"
-                   placeholder="100" value="100" min="1" step="1" inputmode="decimal">
+        <!-- Menge + Portionsgröße -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;" class="mb-4">
+            <div>
+                <label class="form-label">Menge (g)</label>
+                <input type="number" id="ocrMenge" class="form-control"
+                       placeholder="100" value="100" min="1" step="1" inputmode="decimal">
+            </div>
+            <div>
+                <label class="form-label">Portion (g) <span class="text-muted">optional</span></label>
+                <input type="number" id="ocrPortion" class="form-control"
+                       placeholder="z.B. 30" min="1" step="0.5" inputmode="decimal">
+            </div>
         </div>
 
         <!-- Vorschau -->
@@ -604,23 +603,9 @@ renderHeader('Erfassen', 'log');
     </div>
 </div>
 
-<style>
-.mode-btn {
-    flex:1;display:flex;flex-direction:column;align-items:center;
-    gap:.3rem;padding:.65rem .5rem;
-    background:var(--surface);border:1px solid var(--border);
-    border-radius:14px;color:var(--muted);
-    font-size:.72rem;font-weight:600;cursor:pointer;transition:all .15s;
-}
-.mode-btn i { font-size:1.3rem; }
-.mode-btn.active { background:var(--accent-soft);border-color:var(--accent);color:var(--accent); }
-.mode-btn:active { opacity:.75; }
-</style>
-
-<script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.4.2/dist/quagga.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 let currentProduct = null;
+const USER_ID = <?= (int)$userId ?>;
 const pickMode = new URLSearchParams(location.search).get('pick') === '1';
 
 // ── Ziel-Toggle: "heute eintragen" vs. "nur anlegen" ───────────────────────
@@ -717,8 +702,9 @@ function showProduct(p) {
     // Löschen-Button nur für manuell erfasste Produkte zeigen —
     // OpenFoodFacts-Einträge sind lokaler Cache und können nicht
     // aus OpenFoodFacts selbst gelöscht werden, was zu Verwirrung führt.
+    // Produkte mit Barcode sind für alle sichtbar → nur der Ersteller darf löschen.
     document.getElementById('btnDeleteProdukt').style.display =
-        (p.id && p.quelle === 'manuell') ? 'block' : 'none';
+        (p.id && p.quelle === 'manuell' && Number(p.ersteller_id) === USER_ID) ? 'block' : 'none';
 }
 
 // Gewählte Menge in Gramm – im Portion-Modus Anzahl × Portionsgröße
@@ -747,28 +733,64 @@ function updateDanach(elId, kcal) {
     b.classList.toggle('over', r < 0);
 }
 
-// ── Scan-Modus ───────────────────────────────────────────────────────────
-let activeScanMode = null;
-
-function setScanMode(mode) {
-    const liveArea = document.getElementById('scanLiveArea');
-
-    if (mode === activeScanMode) {
-        liveArea.classList.add('d-none');
-        stopLiveScanner();
-        activeScanMode = null;
-        return;
+// ── Barcode nachschlagen ─────────────────────────────────────────────────
+// Gemeinsam für „Barcode eingeben“ und die Übergabe /log.php?barcode=…
+// (der Live-Scanner in scanner.js fragt selbst ab und ruft dann
+// onScanProduct / onScanNotFound).
+async function lookupBarcode(code) {
+    code = String(code || '').replace(/\D/g, '');
+    if (code.length < 5) { showToast('Bitte einen gültigen Barcode eingeben'); return; }
+    hideNotFound();
+    scanOverlayShow('Suche „' + code + '" in Datenbank…', { icon: 'bi-upc-scan', color: 'var(--accent)' });
+    try {
+        const r = await fetch('/api/barcode.php?code=' + encodeURIComponent(code));
+        const d = await r.json();
+        if (d.ok) showProduct(d.product);
+        else if (d.offline) showToast(d.error);
+        else showNotFound(code);
+    } catch (e) {
+        showToast('Verbindungsfehler – bitte nochmal versuchen');
+    } finally {
+        scanOverlayHide();
     }
+}
 
-    activeScanMode = mode;
-    if (mode === 'live') {
-        liveArea.classList.remove('d-none');
-        startLiveScanner();
-    }
-
+// ── Barcode unbekannt → mit diesem Barcode anlegen ───────────────────────
+// pendingBarcode wird beim Speichern an produkt_save.php mitgegeben, damit
+// der nächste Scan das selbst erfasste Produkt direkt findet.
+let pendingBarcode = null;
+function showNotFound(code) {
     document.getElementById('productFound').classList.remove('visible');
+    document.getElementById('notFoundCode').textContent = code;
+    document.getElementById('notFound').dataset.code = code;
+    document.getElementById('notFound').classList.remove('d-none');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function hideNotFound() {
     document.getElementById('notFound').classList.add('d-none');
 }
+function setPendingBarcode(code) {
+    pendingBarcode = code || null;
+    document.querySelectorAll('.barcode-hint').forEach(el => {
+        el.innerHTML = pendingBarcode
+            ? '<i class="bi bi-upc"></i> Wird mit Barcode <b class="num">' + escHtml(pendingBarcode) + '</b> gespeichert'
+            : '';
+        el.style.display = pendingBarcode ? '' : 'none';
+    });
+}
+document.getElementById('btnNfOcr').addEventListener('click', () => {
+    setPendingBarcode(document.getElementById('notFound').dataset.code);
+    ocrStart();
+});
+document.getElementById('btnNfManuell').addEventListener('click', () => {
+    const code = document.getElementById('notFound').dataset.code;
+    openManualModal();
+    setPendingBarcode(code);
+});
+document.getElementById('btnNfNochmal').addEventListener('click', () => {
+    hideNotFound();
+    zxingStart();
+});
 
 // ── Barcode manuell Modal ────────────────────────────────────────────────
 function openBarcodeManuellModal() {
@@ -784,212 +806,6 @@ function closeBarcodeManuellModal() {
 document.getElementById('barcodeManuellModal').addEventListener('click', function(e) {
     if (e.target === this) closeBarcodeManuellModal();
 });
-
-// ── Foto → Base64 ────────────────────────────────────────────────────────
-function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
-        const r = new FileReader();
-        r.onload  = e => resolve({ base64: e.target.result.split(',')[1], mime: file.type });
-        r.onerror = reject;
-        r.readAsDataURL(file);
-    });
-}
-
-// ── Barcode: Quagga2 ─────────────────────────────────────────────────────
-async function handleBarcodePhoto(file) {
-    const statusEl  = document.getElementById('barcodeStatus');
-    const statusTxt = document.getElementById('barcodeStatusText');
-    statusEl.style.display = 'block';
-    statusTxt.textContent  = 'Barcode wird erkannt…';
-    document.getElementById('productFound').classList.remove('visible');
-    document.getElementById('notFound').classList.add('d-none');
-
-    async function prepareImage(maxW) {
-        const img = new Image();
-        img.src = URL.createObjectURL(file);
-        await new Promise(r => { img.onload = r; });
-        const scale  = img.naturalWidth > maxW ? maxW / img.naturalWidth : 1;
-        const canvas = document.getElementById('barcodeCanvas');
-        canvas.width  = Math.round(img.naturalWidth  * scale);
-        canvas.height = Math.round(img.naturalHeight * scale);
-        canvas.getContext('2d', { willReadFrequently: true })
-              .drawImage(img, 0, 0, canvas.width, canvas.height);
-        return canvas.toDataURL('image/jpeg', 0.92);
-    }
-
-    async function tryQuagga() {
-        for (const maxW of [1600, 800, 2400]) {
-            const dataUrl = await prepareImage(maxW);
-            const code = await new Promise((resolve) => {
-                Quagga.decodeSingle({
-                    src: dataUrl, numOfWorkers: 0,
-                    inputStream: { size: maxW },
-                    decoder: {
-                        readers: ['ean_reader','ean_8_reader','upc_reader',
-                                  'upc_e_reader','code_128_reader','code_39_reader'],
-                        multiple: false,
-                    }, locate: true,
-                }, (res) => resolve(res && res.codeResult ? res.codeResult.code : null));
-            });
-            if (code) return code;
-        }
-        return null;
-    }
-
-    try {
-        const barcode = await tryQuagga();
-        if (barcode) {
-            statusTxt.textContent = 'Produkt wird gesucht…';
-            const r = await fetch('/api/barcode.php?code=' + encodeURIComponent(barcode));
-            const d = await r.json();
-            statusEl.style.display = 'none';
-            if (d.ok) { showProduct(d.product); return; }
-            document.getElementById('notFound').classList.remove('d-none');
-            showToast('Barcode ' + barcode + ' nicht in OpenFoodFacts');
-            return;
-        }
-        statusEl.style.display = 'none';
-        document.getElementById('notFound').classList.remove('d-none');
-        showToast('Barcode nicht erkannt — bitte nochmal fotografieren');
-    } catch (e) {
-        statusEl.style.display = 'none';
-        document.getElementById('notFound').classList.remove('d-none');
-        showToast('Fehler: ' + (e.message || e));
-    }
-}
-
-// ── Live-Scan ────────────────────────────────────────────────────────────
-let liveScanner = null, liveScanLocked = false, liveLastFrameLog = 0;
-
-function liveSetStatus(html) {
-    const el = document.getElementById('liveScanStatus');
-    if (el) el.innerHTML = html;
-}
-function liveDbg(msg) { console.log('[LiveScan]', msg); }
-function liveVibrate() { if (navigator.vibrate) try { navigator.vibrate(120); } catch(_){} }
-let liveAudioCtx = null;
-function liveBeep() {
-    try {
-        liveAudioCtx = liveAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
-        const osc = liveAudioCtx.createOscillator(), gain = liveAudioCtx.createGain();
-        osc.connect(gain); gain.connect(liveAudioCtx.destination);
-        osc.frequency.value = 880;
-        gain.gain.setValueAtTime(0.25, liveAudioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, liveAudioCtx.currentTime + 0.15);
-        osc.start(); osc.stop(liveAudioCtx.currentTime + 0.15);
-    } catch(_) {}
-}
-function liveFlash() {
-    const wrap = document.getElementById('liveScannerWrap');
-    if (!wrap) return;
-    const flash = document.createElement('div');
-    Object.assign(flash.style, {position:'absolute',inset:'0',background:'rgba(212,245,60,.35)',
-        zIndex:'50',pointerEvents:'none',transition:'opacity .25s ease-out'});
-    wrap.appendChild(flash);
-    requestAnimationFrame(() => { flash.style.opacity = '0'; });
-    setTimeout(() => flash.remove(), 300);
-}
-function liveSearchOverlayShow() {
-    const wrap = document.getElementById('liveScannerWrap');
-    if (!wrap || document.getElementById('liveSearchOverlay')) return;
-    const o = document.createElement('div');
-    o.id = 'liveSearchOverlay';
-    Object.assign(o.style, {position:'absolute',inset:'0',background:'rgba(0,0,0,.55)',
-        zIndex:'45',display:'flex',alignItems:'center',justifyContent:'center'});
-    o.innerHTML = '<div class="spinner-border spinner-accent" style="width:2.5rem;height:2.5rem;"></div>';
-    wrap.appendChild(o);
-}
-function liveSearchOverlayHide() { document.getElementById('liveSearchOverlay')?.remove(); }
-
-async function startLiveScanner() {
-    if (liveScanner) return;
-    liveScanLocked = false;
-    liveSetStatus('<i class="bi bi-hourglass-split me-1"></i> Kamera wird gestartet…');
-    try {
-        liveAudioCtx = liveAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
-        if (liveAudioCtx.state === 'suspended') liveAudioCtx.resume();
-    } catch(_) {}
-
-    document.getElementById('liveQrReader').innerHTML = '';
-    liveScanner = new Html5Qrcode('liveQrReader', { verbose: false });
-
-    const config = {
-        fps: 12, qrbox: { width: 280, height: 280 },
-        formatsToSupport: [
-            Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
-            Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
-        ],
-        videoConstraints: {
-            width: { min:1280, ideal:1920, max:2560 },
-            height: { min:720, ideal:1080, max:1440 },
-            facingMode: 'environment',
-        },
-    };
-
-    async function onLiveBarcodeDetected(decodedText) {
-        if (liveScanLocked) return;
-        liveScanLocked = true;
-        liveVibrate(); liveBeep(); liveFlash();
-        liveSetStatus(`<i class="bi bi-check-circle-fill me-1" style="color:var(--accent)"></i> Barcode erkannt: <strong>${decodedText}</strong>`);
-        try { await liveScanner.pause(true); } catch(_) {}
-        await new Promise(r => setTimeout(r, 500));
-        liveSetStatus(`<div class="spinner-border spinner-border-sm spinner-accent me-1" style="width:.9rem;height:.9rem;"></div> Suche „${decodedText}" bei OpenFoodFacts…`);
-        liveSearchOverlayShow();
-        try {
-            const r = await fetch('/api/barcode.php?code=' + encodeURIComponent(decodedText));
-            const d = await r.json();
-            liveSearchOverlayHide();
-            if (d.ok) {
-                showProduct(d.product);
-                document.getElementById('liveScannerWrap').classList.add('d-none');
-                document.getElementById('liveScanStatus').classList.add('d-none');
-            } else {
-                document.getElementById('notFound').classList.remove('d-none');
-                liveSetStatus('Barcode ' + decodedText + ' nicht in OpenFoodFacts gefunden.');
-            }
-        } catch(e) {
-            liveSearchOverlayHide();
-            showToast('Verbindungsfehler bei der Suche');
-        }
-        setTimeout(() => {
-            if (!document.getElementById('productFound').classList.contains('visible')) {
-                liveScanLocked = false;
-                if (liveScanner) { try { liveScanner.resume(); } catch(_) {} }
-                liveSetStatus('<i class="bi bi-camera-video me-1"></i> Barcode in den Rahmen halten…');
-            }
-        }, 1500);
-    }
-
-    function onLiveFrameError(msg) {
-        const now = Date.now();
-        if (!liveLastFrameLog || now - liveLastFrameLog > 2000) {
-            liveLastFrameLog = now;
-        }
-    }
-
-    try {
-        await liveScanner.start({ facingMode: 'environment' }, config, onLiveBarcodeDetected, onLiveFrameError);
-        liveSetStatus('<i class="bi bi-camera-video me-1"></i> Barcode in den Rahmen halten…');
-    } catch(e) {
-        let msg = 'Kamera-Fehler: ' + (e.message || e);
-        if (e.name === 'NotAllowedError') {
-            msg = '<i class="bi bi-exclamation-triangle me-1" style="color:var(--warn)"></i> Kamerazugriff verweigert.<br><small>Einstellungen → Safari → Kamera → Erlauben</small>';
-        }
-        liveSetStatus(msg);
-        liveScanner = null;
-    }
-}
-
-async function stopLiveScanner() {
-    if (!liveScanner) return;
-    try {
-        const state = liveScanner.getState();
-        if (state === 2 || state === 3) await liveScanner.stop();
-    } catch(_) {}
-    liveScanner = null; liveScanLocked = false; liveSearchOverlayHide();
-}
-
 
 // ── Top-6 laden ──────────────────────────────────────────────────────────
 async function loadTop5() {
@@ -1120,7 +936,7 @@ document.getElementById('btnSchnellSpeichern').addEventListener('click', async (
                 eiweiss: parseFloat(document.getElementById('sfEiweiss').value) || 0,
                 fett:    parseFloat(document.getElementById('sfFett').value)    || 0,
                 kh:      parseFloat(document.getElementById('sfKh').value)      || 0,
-                datum:   new Date().toISOString().split('T')[0],
+                datum:   heuteISO(),
             }),
         });
         const d = await r.json();
@@ -1142,6 +958,7 @@ function openManualModal() {
     document.getElementById('fFett').value     = '';
     document.getElementById('fKh').value       = '';
     document.getElementById('kcalPreviewManual').style.display = 'none';
+    setPendingBarcode(null);
     document.getElementById('manualModal').style.display = 'block';
     setTimeout(() => document.getElementById('fKcal').focus(), 100);
 }
@@ -1150,7 +967,10 @@ document.getElementById('manualModal').addEventListener('click', function(e) {
     if (e.target === this) closeManualModal();
 });
 // ── Action Sheet ─────────────────────────────────────────────────────────────
-document.getElementById('btnOcrScan').addEventListener('click', ocrStart);
+document.getElementById('btnOcrScan').addEventListener('click', () => {
+    setPendingBarcode(null);
+    ocrStart();
+});
 
 // ── Dropdown-Einträge ─────────────────────────────────────────────────────
 document.getElementById('ddSchnell').addEventListener('click', openSchnellModal);
@@ -1340,71 +1160,74 @@ async function ocrCapture() {
     }
 }
 
-function fixOcrNumber(raw) {
-    // Häufige OCR-Verwechslungen korrigieren:
-    // "9" am Ende → oft "g" (Einheit), also Zeichen davor ist die Zahl
-    // "O" → "0", "l" → "1", "S" → "5"
-    return raw
-        .replace(/O/g, '0')
-        .replace(/o(?=\d)/g, '0')   // o vor Zahl → 0
-        .replace(/l(?=\d)/g, '1')   // l vor Zahl → 1
-        .replace(/,/g, '.');         // Komma → Punkt
+// OCR-Text normalisieren: deutsches Komma → Punkt, O/o/l zwischen bzw. vor
+// Ziffern → 0/1. Ziffern selbst bleiben unangetastet.
+function normalizeOcrText(text) {
+    return text
+        .replace(/(\d)[oO](?=\d|\b)/g, '$10')
+        .replace(/\b[oO](?=[.,]?\d)/g, '0')
+        .replace(/\bl(?=\d)/g, '1')
+        .replace(/(\d)\s?,\s?(\d)/g, '$1.$2');
 }
 
-function extractNumbers(line) {
-    // Zeile vorverarbeiten:
-    // 1. Bekannte Einheiten entfernen (g, mg, kJ, kcal) die als Zahl erkannt wurden
-    // 2. "9" am Zeilenende oder vor Leerzeichen ist wahrscheinlich "g" → entfernen
-    let cleaned = line
-        .replace(/\b9\s*$/g, '')          // trailing "9" (= "g")
-        .replace(/\b9\s+(?=[A-Za-z])/g, '') // "9 " vor Text (= "g ")
-        .replace(/([0-9]),([0-9])/g, '$1.$2') // deutsches Komma → Punkt
-        .replace(/[^0-9.]/g, ' ');           // alles außer Zahlen/Punkt entfernen
-    const matches = cleaned.match(/\d+\.?\d*/g) || [];
-    return matches.map(v => parseFloat(v)).filter(v => !isNaN(v) && v > 0);
+// Erster Nährwert einer Zeile (g pro 100 g). OCR liest das „g“ der Einheit
+// gelegentlich als „9“ („2.39“ statt „2.3g“). Eine 9 am Ende wird aber NUR
+// entfernt, wenn danach keine Einheit steht UND der Wert sonst unplausibel
+// wäre (zwei Nachkommastellen bzw. > 100 g) – „19 g“ oder „2.9 g“ bleiben so.
+function extractNaehrwert(line) {
+    const re = /(\d+(?:\.\d+)?)(\s*(?:mg|g|kcal|kj)\b)?/gi;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+        let raw = m[1];
+        const hatEinheit = !!m[2];
+        if (/^mg/i.test((m[2] || '').trim())) continue;   // mg-Angaben überspringen
+        if (!hatEinheit && raw.length > 1 && raw.endsWith('9')
+            && (/\.\d9$/.test(raw) || parseFloat(raw) > 100)) {
+            raw = raw.slice(0, -1).replace(/\.$/, '');
+        }
+        const v = parseFloat(raw);
+        // Bezugsgröße „pro 100 g“ in derselben Zeile ist kein Nährwert
+        if (v === 100 && /(?:pro|je|per)\s*$/i.test(line.slice(0, m.index))) continue;
+        if (!isNaN(v) && v <= 100) return v;
+    }
+    return null;
 }
 
 function parseNaehrwerte(text) {
-    const result = { kcal: '', eiweiss: '', fett: '', kh: '' };
+    const result = { kcal: '', eiweiss: '', fett: '', kh: '', portion: '' };
+    const clean = normalizeOcrText(text);
 
-    // Text vorverarbeiten: "9" nach Zahlen ist fast immer "g"
-    // z.B. "12,39" statt "12,3g" – OCR verwechselt g/9 gelegentlich
-    const cleanText = text
-        .replace(/(\d)9(\s|$)/gm, '$1g$2') // Zahl + 9 am Wortende → Zahl + g
-        .replace(/(\d),9(\s|$)/gm, '$1g$2'); // z.B. "3,9 " → "3g "
-
-    // ── kcal: explizites "N kcal"-Muster hat absolute Priorität ──────────
-    // Nährwerttabellen schreiben den kcal-Wert immer direkt vor "kcal".
-    const kcalMatch = cleanText.match(/(\d+(?:[.,]\d+)?)\s*k\s?cal/i);
-    if (kcalMatch) {
-        result.kcal = parseFloat(kcalMatch[1].replace(',', '.'));
-    } else {
-        // Fallback: nur kJ gefunden → in kcal umrechnen (÷ 4,184)
-        const kjMatch = cleanText.match(/(\d+(?:[.,]\d+)?)\s*k\s?j/i);
-        if (kjMatch) {
-            result.kcal = Math.round(parseFloat(kjMatch[1].replace(',', '.')) / 4.184);
-        }
+    // ── kcal: explizites „N kcal“ hat Priorität, dann „kJ/kcal 1046/249“,
+    // zuletzt nur kJ → umrechnen (÷ 4,184).
+    const kcalMatch  = clean.match(/(\d+(?:\.\d+)?)\s*k\s?cal/i);
+    const kombiMatch = clean.match(/kj\s*\/\s*k\s?cal\D{0,15}(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/i);
+    const kjMatch    = clean.match(/(\d+(?:\.\d+)?)\s*k\s?j/i);
+    if (kcalMatch && parseFloat(kcalMatch[1]) <= 900) {
+        result.kcal = parseFloat(kcalMatch[1]);
+    } else if (kombiMatch) {
+        result.kcal = parseFloat(kombiMatch[2]);
+    } else if (kjMatch) {
+        result.kcal = Math.round(parseFloat(kjMatch[1]) / 4.184);
     }
 
-    const lines = cleanText.split('\n').map(l => l.trim()).filter(Boolean);
+    // ── Portionsgröße: „pro Portion (30 g)“, „1 Portion = 30 g“, „pro 30 g“
+    const portionMatch = clean.match(/(?:portion|serving|stück)\D{0,20}?(\d+(?:\.\d+)?)\s*(?:g|ml)\b/i)
+                      || clean.match(/(?:pro|je)\s+(\d+(?:\.\d+)?)\s*(?:g|ml)\b/i);
+    if (portionMatch && parseFloat(portionMatch[1]) !== 100) {
+        result.portion = parseFloat(portionMatch[1]);
+    }
 
-    for (const line of lines) {
-        const nums = extractNumbers(line);
-        const first = nums.length > 0 ? nums[0] : null;
+    for (const line of clean.split('\n').map(l => l.trim()).filter(Boolean)) {
         const l = line.toLowerCase();
-
-        // kcal wird global über explizite Muster erkannt (siehe unten),
-        // nicht mehr zeilenweise – kJ-Werte werden sonst zu leicht verwechselt.
         if (!result.eiweiss && (l.includes('eiwei') || l.includes('protein'))) {
-            if (first !== null && first <= 100) result.eiweiss = first;
+            const v = extractNaehrwert(line); if (v !== null) result.eiweiss = v;
         }
-        if (!result.fett && l.includes('fett') &&
-            !l.includes('gesättig') && !l.includes('fettsäure') && !l.includes('trans')) {
-            if (first !== null && first <= 100) result.fett = first;
+        if (!result.fett && (l.includes('fett') || /\bfat\b/.test(l))
+            && !l.includes('gesättig') && !l.includes('fettsäure') && !l.includes('saturate') && !l.includes('trans')) {
+            const v = extractNaehrwert(line); if (v !== null) result.fett = v;
         }
-        if (!result.kh && (l.includes('kohlenhydrat') || l.includes('kohlenh') ||
-                           l.includes(' kh') || l.includes('zucker') === false && l.includes('kh'))) {
-            if (first !== null && first <= 100) result.kh = first;
+        if (!result.kh && (l.includes('kohlenh') || l.includes('carbohydrate') || /\bkh\b/.test(l))) {
+            const v = extractNaehrwert(line); if (v !== null) result.kh = v;
         }
     }
     return result;
@@ -1416,6 +1239,7 @@ function showOcrResult(parsed) {
     document.getElementById('ocrFett').value    = parsed.fett    || '';
     document.getElementById('ocrKh').value      = parsed.kh      || '';
     document.getElementById('ocrMenge').value   = '100';
+    document.getElementById('ocrPortion').value = parsed.portion || '';
     document.getElementById('ocrName').value    = '';
     document.getElementById('ocrPreview').style.display = 'none';
     document.getElementById('ocrResultModal').style.display = 'block';
@@ -1446,7 +1270,7 @@ async function ocrSave() {
     if (!name)    { showToast('Bitte Produktname eingeben'); document.getElementById('ocrName').focus(); return; }
     if (!kcal100) { showToast('Bitte Kalorien eingeben'); return; }
 
-    const btn = document.querySelector('#ocrResultModal .scan-btn');
+    const btn = document.getElementById('btnOcrSave');
     btn.disabled = true;
 
     // Pick-Modus: nur als Zutat zurückgeben, kein Produkt anlegen, kein Tageseintrag
@@ -1473,11 +1297,13 @@ async function ocrSave() {
                 eiweiss_100g: parseFloat(document.getElementById('ocrEiweiss').value) || 0,
                 fett_100g:    parseFloat(document.getElementById('ocrFett').value)    || 0,
                 kh_100g:      parseFloat(document.getElementById('ocrKh').value)      || 0,
-                quelle:       'manuell',
+                portion_g:    parseFloat(document.getElementById('ocrPortion').value) || null,
+                barcode:      pendingBarcode,
             }),
         });
         const dP = await rP.json();
         if (!dP.ok) throw new Error(dP.error);
+        if (pendingBarcode) { hideNotFound(); setPendingBarcode(null); }
 
         // Nur anlegen: Produkt ist gespeichert, Buchung für heute überspringen.
         if (ocrZielCtrl && ocrZielCtrl.get() === 'speichern') {
@@ -1497,7 +1323,7 @@ async function ocrSave() {
                 eiweiss: Math.round((parseFloat(document.getElementById('ocrEiweiss').value)||0) * menge/100 * 10)/10,
                 fett:    Math.round((parseFloat(document.getElementById('ocrFett').value)   ||0) * menge/100 * 10)/10,
                 kh:      Math.round((parseFloat(document.getElementById('ocrKh').value)     ||0) * menge/100 * 10)/10,
-                datum:   new Date().toISOString().split('T')[0],
+                datum:   heuteISO(),
             }),
         });
         const dE = await rE.json();
@@ -1522,7 +1348,8 @@ window.addEventListener('pagehide', ocrStop);
 
 // Scanner (global, scanner.js): Treffer direkt hier im Produkt-Sheet zeigen
 // statt wie auf anderen Seiten nach /log.php?barcode=… weiterzuleiten.
-window.onScanProduct = (product) => showProduct(product);
+window.onScanProduct  = (product) => showProduct(product);
+window.onScanNotFound = (code) => showNotFound(code);
 
 // Übergabe aus dem Scanner einer anderen Seite (/log.php?barcode=…) bzw.
 // Einstiege der Quick Actions: Suche (?focus=search), schneller Eintrag
@@ -1537,18 +1364,9 @@ window.onScanProduct = (product) => showProduct(product);
     const code = qs.get('barcode');
     if (!code) return;
     history.replaceState(null, '', location.pathname + (qs.get('pick') ? '?pick=1' : ''));
-    try {
-        const r = await fetch('/api/barcode.php?code=' + encodeURIComponent(code));
-        const d = await r.json();
-        if (d.ok) showProduct(d.product);
-        else { document.getElementById('notFound').classList.remove('d-none'); showToast('Barcode ' + code + ' nicht gefunden'); }
-    } catch (e) { showToast('Verbindungsfehler'); }
+    lookupBarcode(code);
 })();
 
-document.getElementById('btnBarcodeFoto').addEventListener('click', () => {
-    document.getElementById('notFound').classList.add('d-none');
-    document.getElementById('barcodeFileInput').click();
-});
 document.getElementById('btnBarcodeEingeben').addEventListener('click', () => {
     openBarcodeManuellModal();
 });
@@ -1583,10 +1401,13 @@ document.getElementById('btnSpeichern').addEventListener('click', async () => {
                 fett_100g:    parseFloat(document.getElementById('fFett').value)    || 0,
                 kh_100g:      parseFloat(document.getElementById('fKh').value)      || 0,
                 portion_g:    parseFloat(document.getElementById('fPortion').value) || null,
+                barcode:      pendingBarcode,
             }),
         });
         const pData = await pRes.json();
+        if (!pData.ok && pendingBarcode) { showToast('Fehler: ' + (pData.error || 'Unbekannt')); return; }
         const produktId = pData.ok ? (pData.id || null) : null;
+        if (pData.ok && pendingBarcode) { hideNotFound(); setPendingBarcode(null); }
         const f = menge / 100;
         const eiweiss100 = parseFloat(document.getElementById('fEiweiss').value) || 0;
         const fett100    = parseFloat(document.getElementById('fFett').value)    || 0;
@@ -1619,7 +1440,7 @@ document.getElementById('btnSpeichern').addEventListener('click', async () => {
                 eiweiss: Math.round(eiweiss100 * f * 10) / 10,
                 fett:    Math.round(fett100    * f * 10) / 10,
                 kh:      Math.round(kh100      * f * 10) / 10,
-                datum:   new Date().toISOString().split('T')[0],
+                datum:   heuteISO(),
             }),
         });
         const d = await r.json();
@@ -1702,7 +1523,7 @@ document.getElementById('btnEintragen').addEventListener('click', async () => {
                 eiweiss: Math.round(currentProduct.eiweiss_100g * f * 10) / 10,
                 fett:    Math.round(currentProduct.fett_100g    * f * 10) / 10,
                 kh:      Math.round(currentProduct.kh_100g      * f * 10) / 10,
-                datum:   new Date().toISOString().split('T')[0],
+                datum:   heuteISO(),
             }),
         });
         if (!r.ok) { const t = await r.text(); showToast('Server-Fehler (' + r.status + ')'); return; }
@@ -1715,14 +1536,7 @@ document.getElementById('btnEintragen').addEventListener('click', async () => {
 document.getElementById('btnVerwerfen').addEventListener('click', () => {
     currentProduct = null;
     document.getElementById('productFound').classList.remove('visible');
-    document.getElementById('notFound').classList.add('d-none');
-    if (activeScanMode === 'live') {
-        document.getElementById('liveScannerWrap').classList.remove('d-none');
-        document.getElementById('liveScanStatus').classList.remove('d-none');
-        liveScanLocked = false;
-        if (liveScanner) { try { liveScanner.resume(); } catch(_) {} }
-        liveSetStatus('<i class="bi bi-camera-video me-1"></i> Barcode in den Rahmen halten…');
-    }
+    hideNotFound();
 });
 
 // Tippen auf Modal-Hintergrund schließt das Modal (wie Verwerfen)
@@ -1740,41 +1554,30 @@ document.getElementById('btnDeleteProdukt').addEventListener('click', async () =
             body: JSON.stringify({ id: currentProduct.id }),
         });
         const d = await r.json();
-        if (d.ok) {
+        if (d.ok && d.deleted) {
             showToast('Produkt gelöscht');
             document.getElementById('btnVerwerfen').click();
             // Top-6 neu laden damit gelöschtes Produkt verschwindet
             loadTop5();
         } else {
-            showToast('Fehler: ' + (d.error || 'Unbekannt'));
+            showToast('Fehler: ' + (d.error || 'Produkt konnte nicht gelöscht werden'));
         }
     } catch(e) {
         showToast('Verbindungsfehler');
     }
 });
 
-
-document.getElementById('barcodeFileInput').addEventListener('change', e => {
-    if (e.target.files[0]) handleBarcodePhoto(e.target.files[0]);
-    e.target.value = '';
-});
-
 // ── Barcode manuell Events ───────────────────────────────────────────────
-document.getElementById('btnLookupManual').addEventListener('click', async () => {
-    const code = document.getElementById('manualBarcodeInput').value.trim();
-    if (!code) return;
+document.getElementById('btnLookupManual').addEventListener('click', () => {
+    const code = document.getElementById('manualBarcodeInput').value.replace(/\D/g, '');
+    if (code.length < 5) { showToast('Bitte einen gültigen Barcode eingeben'); return; }
     closeBarcodeManuellModal();
-    const r = await fetch('/api/barcode.php?code=' + encodeURIComponent(code));
-    const d = await r.json();
-    if (d.ok) showProduct(d.product);
-    else { document.getElementById('notFound').classList.remove('d-none'); showToast('Barcode nicht in OpenFoodFacts-DB.'); }
+    lookupBarcode(code);
 });
 document.getElementById('manualBarcodeInput').addEventListener('keyup', e => {
     if (e.key === 'Enter') document.getElementById('btnLookupManual').click();
 });
 
-window.addEventListener('pagehide', stopLiveScanner);
-window.addEventListener('beforeunload', stopLiveScanner);
 
 // ── Gerichte ─────────────────────────────────────────────────────────────
 let _currentGericht = null;
@@ -1910,7 +1713,7 @@ document.getElementById('gerichtEintragenModal').addEventListener('click', funct
 document.getElementById('btnGerichtEintragen').addEventListener('click', async () => {
     if (!_currentGericht) return;
     const val   = parseFloat(document.getElementById('gerichtEintragenPortionen').value) || 1;
-    const datum = new Date().toISOString().slice(0, 10);
+    const datum = heuteISO();
     const payload = { gericht_id: _currentGericht.id, datum };
     if (_gerichtModus === 'gramm') payload.menge_g = val;
     else                           payload.portionen = val;
