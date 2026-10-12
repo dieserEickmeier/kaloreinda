@@ -45,7 +45,6 @@ renderHeader('Erfassen', 'log');
             <i class="bi bi-keyboard"></i><span>Barcode<br>eingeben</span>
         </button>
         <button id="btnOcrScan" class="action-tile" type="button">
-            <span class="badge-beta">BETA</span>
             <i class="bi bi-body-text"></i><span>Nährwerte<br>scannen</span>
         </button>
         <button id="ddSchnell" class="action-tile" type="button">
@@ -276,7 +275,7 @@ renderHeader('Erfassen', 'log');
     </div>
 </div>
 
-<!-- ── Modal: Nährwerte scannen (OCR Beta) ───────────────────── -->
+<!-- ── Modal: Nährwerte scannen (OCR) ──────────────────────── -->
 <div id="ocrModal" style="display:none;position:fixed;inset:0;z-index:500;
      background:rgba(0,0,0,.85);flex-direction:column;">
 
@@ -981,7 +980,7 @@ document.getElementById('btnOcrScan').addEventListener('click', () => {
 document.getElementById('ddSchnell').addEventListener('click', openSchnellModal);
 document.getElementById('ddManuell').addEventListener('click', openManualModal);
 
-// ── OCR Nährwerte Scanner (ppu-paddle-ocr + PP-OCRv6 tiny, Beta) ─────────
+// ── OCR Nährwerte Scanner (ppu-paddle-ocr + PP-OCRv6 tiny) ───────────────
 // Bundle assets/js/ocr/ppu-ocr.js = ppu-paddle-ocr/web + onnxruntime-web
 // (nur WASM-Backend), per esbuild als IIFE gebaut (globalThis.PpuOcr). Modelle
 // und ORT-WASM liegen lokal – ohne wasmPaths käme die WASM-Datei von jsDelivr.

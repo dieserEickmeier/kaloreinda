@@ -135,7 +135,7 @@ kalorientracker/
 - **Mehrbenutzerfähig** – Session-Login, alle Daten pro Nutzer getrennt
 - **Barcode-Scan** – Live-Scanner (ZXing/WASM, EAN/UPC) über den Scan-Button der
   Navigation auf jeder Seite, alternativ Barcode eintippen
-- **Nährwerttabelle scannen** (Beta) – live ohne Auslösen: PaddleOCR (PP-OCRv6 tiny)
+- **Nährwerttabelle scannen** – live ohne Auslösen: PaddleOCR (PP-OCRv6 tiny)
   läuft lokal im Browser (Web Worker), liest kcal, Makros und Portionsgröße und
   übernimmt automatisch, sobald die Werte bestätigt und plausibel sind; tolerant
   gegen schräg gehaltene Etiketten
