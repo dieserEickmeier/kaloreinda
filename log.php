@@ -991,7 +991,7 @@ document.getElementById('ddManuell').addEventListener('click', openManualModal);
 // (nur WASM-Backend), per esbuild als IIFE gebaut (globalThis.PpuOcr). Modelle
 // und ORT-WASM liegen lokal – ohne wasmPaths käme die WASM-Datei von jsDelivr.
 // Bei einem Update alle Dateien gemeinsam ersetzen und OCR_ASSET_VERSION erhöhen.
-const OCR_ASSET_VERSION = 'ppu6.6.1-ort1.30.0-v6tiny-w3';
+const OCR_ASSET_VERSION = 'ppu6.6.1-ort1.30.0-v6tiny-w4';
 const OCR_MODEL = {
     detection:            '/assets/models/PP-OCRv6_tiny_det.ort',
     recognition:          '/assets/models/PP-OCRv6_tiny_rec.ort',
@@ -1070,10 +1070,11 @@ const ocrEngine = {
                 this.worker?.terminate(); this.worker = null;
             }
         }
-        if (typeof PpuOcr === 'undefined') {
+        for (const [datei, da] of [['ppu-ocr.js', 'PpuOcr'], ['ocr-erkennen.js', 'ocrErkennen']]) {
+            if (globalThis[da]) continue;
             await new Promise((resolve, reject) => {
                 const s = document.createElement('script');
-                s.src = '/assets/js/ocr/ppu-ocr.js' + v;
+                s.src = '/assets/js/ocr/' + datei + v;
                 s.onload = resolve;
                 s.onerror = () => reject(new Error('OCR-Engine nicht ladbar'));
                 document.head.appendChild(s);
@@ -1112,8 +1113,7 @@ const ocrEngine = {
                 this.worker.postMessage({ typ: 'scan', id, bitmap }, [bitmap]);
             });
         }
-        const res = await this.svc.recognize(canvas, { flatten: true, minimumConfidence: 0 });
-        return res.results.map(r => ({ text: r.text, x: r.box.x, y: r.box.y, w: r.box.width, h: r.box.height, konf: r.confidence }));
+        return ocrErkennen(this.svc, canvas);
     },
 };
 
@@ -1426,8 +1426,16 @@ function ocrKonsens(verlauf) {
     if (p && OCR_FELDER.every(k => p[k] !== '' && p[k] !== undefined)) {
         const berechnet = 4 * p.eiweiss + 4 * p.kh + 9 * p.fett;
         const genau = Math.abs(berechnet - p.kcal) <= Math.max(8, p.kcal * 0.02);
-        const widerspruch = fenster.slice(0, -1).some(q =>
-            OCR_FELDER.some(k => q[k] !== '' && q[k] !== undefined && q[k] !== p[k]));
+        // Widerspruch = ein anderer Wert, der mindestens zweimal gelesen wurde;
+        // vereinzelte Fehllesungen („1,0 g“ als 10, 69, 8 beim Kochschinken)
+        // sollen eine sauber aufgehende Lesung nicht blockieren
+        const widerspruch = OCR_FELDER.some(k => {
+            const n = new Map();
+            fenster.slice(0, -1).forEach(q => {
+                if (q[k] !== '' && q[k] !== undefined && q[k] !== p[k]) n.set(q[k], (n.get(q[k]) || 0) + 1);
+            });
+            return [...n.values()].some(c => c >= 2);
+        });
         if (genau && !widerspruch) {
             const werte = Object.fromEntries([...OCR_FELDER, 'portion'].map(k => [k, p[k]]));
             if (werte.portion === '') {
@@ -1629,6 +1637,7 @@ function normalizeOcrText(text) {
         .replace(/(\d)[oO](?=\d|\b)/g, '$10')
         .replace(/\b[oO](?=[.,]?\d)/g, '0')
         .replace(/\bl(?=\d)/g, '1')
+        .replace(/(\d)\s?[.,]\s?[.,]\s?(\d)/g, '$1.$2')    // „23.,6“, „16.,0“
         .replace(/(\d)\s?,\s?(\d)/g, '$1.$2');
 }
 
@@ -1643,6 +1652,11 @@ function extractNaehrwert(line) {
         let raw = m[1];
         const hatEinheit = !!m[2];
         if (/^mg/i.test((m[2] || '').trim())) continue;   // mg-Angaben überspringen
+        // Prozentangaben sind nie der Nährwert: %RI-Spalte, „Gouda, 48 % Fett
+        // i. Tr.“, „Milch 1,5 % Fett“
+        if (!hatEinheit && /^\s*%/.test(line.slice(re.lastIndex))) continue;
+        // „09“ ist „0g“ mit dem g als 9 gelesen (führende Null gibt es sonst nicht)
+        if (!hatEinheit && raw === '09') return 0;
         // Nur bei zwei Nachkommastellen („12.39“ → 12.3). Ganze Zahlen > 100
         // („539“) sind fast immer ein Wert aus einer verrutschten Zeile, z.B.
         // kcal – gekürzt würde daraus ein falscher Nährwert (53).
@@ -1686,7 +1700,7 @@ function zeileBeginntMit(l, begriffe, maxFehler) {
 
 function parseNaehrwerte(text) {
     // zeilen: Feld → Index der Zeile, aus der der Wert stammt (für das Overlay)
-    const result = { kcal: '', eiweiss: '', fett: '', kh: '', portion: '', zeilen: {} };
+    const result = { kcal: '', eiweiss: '', fett: '', kh: '', portion: '', zucker: '', gesaettigt: '', zeilen: {} };
     const clean = normalizeOcrText(text);
     const lines = clean.split('\n').map(l => l.trim()).filter(Boolean);
 
@@ -1697,8 +1711,10 @@ function parseNaehrwerte(text) {
     // „249 kcal“ – nur innerhalb einer Zeile (über einen Umbruch hinweg würde
     // „…336/ 4⏎kcal 539“ zu „4 kcal“). Dazu Einheitenspalte VOR der Zahl am
     // Zeilenanfang („kcal) 539“, „(kJ 2252/“), wie bei Nutella.
-    const kcalWerte  = [...clean.matchAll(/(\d+(?:\.\d+)?)[ \t]*k[ \t]?cal/gi),
-                        ...clean.matchAll(/^\W*k[ \t]?cal\W{0,3}(\d+(?:\.\d+)?)/gim)]
+    // Zahl nicht direkt hinter Buchstaben („(kJ1 kcal)“ ist kein „1 kcal“);
+    // vor der Einheitenspalte darf ein verlesenes Wort stehen („Fell kcal) 539“)
+    const kcalWerte  = [...clean.matchAll(/(?<![\p{L}\d.])(\d+(?:\.\d+)?)[ \t]*k[ \t]?cal/giu),
+                        ...clean.matchAll(/^\W*(?:\p{L}+\W+)?k[ \t]?cal\W{0,3}(\d+(?:\.\d+)?)/gimu)]
                        .map(m => parseFloat(m[1])).filter(v => v <= 900);
     const kombiMatch = clean.match(/kj\s*\/\s*k\s?cal\D{0,15}(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/i);
     const kjMatch    = clean.match(/(\d+(?:\.\d+)?)[ \t]*k[ \t]?j/i)
@@ -1746,13 +1762,29 @@ function parseNaehrwerte(text) {
     const istKh      = l => l.includes('kohlenh') || l.includes('carbohydrate') || /\bkh\b/.test(l)
                             || /glucides|koolhydrat|kolhydrat|kulhydrat|carboidrati/.test(l)
                             || zeileBeginntMit(l, ['kohlenhydrate'], 3);
-    const istIrgendeine = l => istEiweiss(l) || istFett(l) || istKh(l)
-                            || /zucker|sugar|salz|salt|ballast|fibre|fiber|energie|brennwert|ges[äa]tt|saturate/.test(l);
-    const felder = [['eiweiss', istEiweiss], ['fett', istFett], ['kh', istKh]];
+    // „ucker“: OCR liest das Z oft als Ž oder lässt es weg
+    const istZucker = l => /ucker|sugar/.test(l);
+    const istGesaettigt = l => /ges[äaã]t+ig|saturate/.test(l);
+    const istIrgendeine = l => istEiweiss(l) || istFett(l) || istKh(l) || istZucker(l) || /^\W*davon\b/.test(l)
+                            || /salz|salt|ballast|fibre|fiber|energie|brennwert|ges[äa]tt|saturate/.test(l);
+    const andereBezeichnung = {
+        eiweiss: /kohlenh|fett|ucker|salz/,
+        fett:    /kohlenh|eiwei|ucker|salz/,
+        kh:      /eiwei|ucker|salz|fe\p{L}{2,8}ren|ges[äaã]t/u,
+    };
+    // Zucker und gesättigte Fettsäuren nur zur Kontrolle (s. u.)
+    const felder = [['eiweiss', istEiweiss], ['fett', istFett], ['kh', istKh], ['zucker', istZucker], ['gesaettigt', istGesaettigt]];
     lines.forEach((line, i) => {
         const l = line.toLowerCase();
+        // Zeile mit kcal/kJ ist die Energiezeile, auch wenn OCR ein „Fett“
+        // davorgeklebt hat („Fell kcal) 539 336/ 80“ → sonst Fett 80)
+        if (/k\s?cal|\bk\s?j\b/.test(l)) return;
         for (const [feld, ist] of felder) {
             if (result[feld] !== '' || !ist(l)) continue;
+            // Zwei Tabellenzeilen zu einer verschmolzen („davon Zucker
+            // Kohlenhydrate 88 0%“, „Kohlenhydrate Fettsäuren 36,0g“): der
+            // Wert ist nicht zuzuordnen
+            if (andereBezeichnung[feld]?.test(l)) continue;
             let v = extractNaehrwert(line), quelle = i;
             // Lange (mehrsprachige) Bezeichnung über zwei Zeilen: Wert steht in
             // der Folgezeile, sofern dort keine andere Nährstoff-Bezeichnung beginnt
@@ -1762,6 +1794,17 @@ function parseNaehrwerte(text) {
             if (v !== null) { result[feld] = v; result.zeilen[feld] = quelle; }
         }
     });
+
+    // „davon Zucker“ kann nicht größer sein als die Kohlenhydrate, „davon
+    // gesättigte“ nicht größer als Fett – sonst sind die Zeilen verrutscht
+    // (Nutella: KH bekam 10,6 aus der Zeile darüber, Zucker 57,5 den KH-Wert)
+    for (const [teil, ganz] of [['zucker', 'kh'], ['gesaettigt', 'fett']]) {
+        if (result[teil] !== '' && result[ganz] !== '' && result[teil] > result[ganz]) {
+            result[ganz] = ''; delete result.zeilen[ganz];
+        }
+    }
+    delete result.zucker; delete result.gesaettigt;
+    delete result.zeilen.zucker; delete result.zeilen.gesaettigt;
 
     if (kcalStrittig && result.eiweiss !== '' && result.fett !== '' && result.kh !== '') {
         const ausMakros = 4 * result.eiweiss + 4 * result.kh + 9 * result.fett;

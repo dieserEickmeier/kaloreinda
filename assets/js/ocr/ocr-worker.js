@@ -14,7 +14,8 @@ self.onmessage = async (e) => {
     const m = e.data;
     try {
         if (m.typ === 'init') {
-            importScripts('/assets/js/ocr/ppu-ocr.js?v=' + encodeURIComponent(m.version));
+            const v = '?v=' + encodeURIComponent(m.version);
+            importScripts('/assets/js/ocr/ppu-ocr.js' + v, '/assets/js/ocr/ocr-erkennen.js' + v);
             PpuOcr.ort.env.wasm.wasmPaths  = m.wasmPaths;
             PpuOcr.ort.env.wasm.numThreads = 1;
             svc = new PpuOcr.PaddleOcrService({
@@ -29,7 +30,7 @@ self.onmessage = async (e) => {
                 const g = w.getContext('2d');
                 g.fillStyle = '#fff'; g.fillRect(0, 0, 64, 64);
                 g.fillStyle = '#000'; g.fillRect(8, 26, 48, 12);
-                await svc.recognize(w, { flatten: true, minimumConfidence: 0 });
+                await ocrErkennen(svc, w);
             } catch (e) { /* optional */ }
             self.postMessage({ typ: 'bereit' });
         } else if (m.typ === 'scan') {
@@ -37,17 +38,7 @@ self.onmessage = async (e) => {
             const c = new OffscreenCanvas(bmp.width, bmp.height);
             c.getContext('2d').drawImage(bmp, 0, 0);
             bmp.close();
-            // minimumConfidence 0: alle Textstellen inkl. Konfidenz zurück, gefiltert
-            // wird in log.php (die Bibliothek bewertet Zeilen stapelweise, ihr
-            // Standardfilter 0,5 wirft sonst ganze Zeilengruppen weg)
-            const res = await svc.recognize(c, { flatten: true, minimumConfidence: 0 });
-            self.postMessage({
-                typ: 'ergebnis', id: m.id,
-                items: res.results.map(r => ({
-                    text: r.text, x: r.box.x, y: r.box.y, w: r.box.width, h: r.box.height,
-                    konf: r.confidence,
-                })),
-            });
+            self.postMessage({ typ: 'ergebnis', id: m.id, items: await ocrErkennen(svc, c) });
         }
     } catch (err) {
         self.postMessage({ typ: 'fehler', id: m.id, msg: String((err && err.message) || err) });
