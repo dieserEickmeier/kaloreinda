@@ -1475,7 +1475,26 @@ function ocrKonsens(verlauf) {
         };
         kombi(0, []);
     }
-    return beste ? { werte: { ...werte, ...beste.w }, bestaetigt: true } : { werte, bestaetigt: false };
+    if (beste) return { werte: { ...werte, ...beste.w }, bestaetigt: true };
+
+    // Mehrfach identisch gelesen: Manche Packungen „rechnen nicht auf“
+    // (Süßungsmittel mit 2,4 kcal/g, viele Ballaststoffe, Alkohol in Saucen –
+    // Müsliriegel 11 %, Kikkoman 13 %, Fruchtgummi 17 %). Dieselben vier Werte
+    // in ≥ 4 Bildern gelten dann auch, sofern kein anderer Wert eines Feldes
+    // zweimal gelesen wurde und die Rechnung grob passt (≤ 25 %).
+    const anzahl = new Map();
+    for (const q of fenster) {
+        if (!OCR_FELDER.every(k => q[k] !== '' && q[k] !== undefined)) continue;
+        const key = OCR_FELDER.map(k => q[k]).join('|');
+        anzahl.set(key, (anzahl.get(key) || 0) + 1);
+    }
+    const [key, n] = [...anzahl].sort((a, b) => b[1] - a[1])[0] || [];
+    if (n >= 4) {
+        const w = Object.fromEntries(OCR_FELDER.map((k, j) => [k, +key.split('|')[j]]));
+        const unangefochten = OCR_FELDER.every(k => rang[k].every(([v, e]) => v === w[k] || e.n < 2));
+        if (unangefochten && ocrPlausibel(w, 0.25)) return { werte: { ...werte, ...w }, bestaetigt: true };
+    }
+    return { werte, bestaetigt: false };
 }
 
 // Echte Packungen weichen ≤ 4 % ab (Lindt, Nutella, Haribo, Ketchup …); 15 %
