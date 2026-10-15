@@ -42,13 +42,21 @@ static void draw_pixel_digit(GContext *ctx, int d, int x, int y, int c, GColor c
 }
 
 // Segment-Säule, füllt sich von unten mit `on` Segmenten
-static void draw_column(GContext *ctx, GRect r, int on, GColor col) {
+// (ring = alle Segmente als Rahmen in dieser Farbe statt gefüllt)
+static void draw_column_ex(GContext *ctx, GRect r, int on, GColor col, bool ring) {
   int col_x = r.origin.x, col_y = r.origin.y, col_w = r.size.w, col_h = r.size.h;
   for (int i = 0; i < SAEULE_SEGMENTE; i++) {
     int y0 = col_y + col_h - (i + 1) * col_h / SAEULE_SEGMENTE;
     int y1 = col_y + col_h - i * col_h / SAEULE_SEGMENTE;
     GRect seg = GRect(col_x, y0 + 1, col_w, y1 - y0 - 3);
-    if (i < on) {
+    if (ring) {
+      #if defined(PBL_COLOR)
+        graphics_context_set_fill_color(ctx, COL_TRACK);
+        graphics_fill_rect(ctx, seg, 2, GCornersAll);
+      #endif
+      graphics_context_set_stroke_color(ctx, col);
+      graphics_draw_round_rect(ctx, seg, 2);
+    } else if (i < on) {
       graphics_context_set_fill_color(ctx, col);
       graphics_fill_rect(ctx, seg, 2, GCornersAll);
     } else {
@@ -61,6 +69,10 @@ static void draw_column(GContext *ctx, GRect r, int on, GColor col) {
       #endif
     }
   }
+}
+
+static void draw_column(GContext *ctx, GRect r, int on, GColor col) {
+  draw_column_ex(ctx, r, on, col, false);
 }
 
 static void canvas_update(Layer *layer, GContext *ctx) {
@@ -123,17 +135,21 @@ static void canvas_update(Layer *layer, GContext *ctx) {
   draw_column(ctx, GRect(col_x, col_y, col_w, col_h), on, COL_ACCENT);
 
   #if defined(LAYOUT_SAEULEN)
-    // ── Säule „noch übrig“: leert sich über den Tag, über dem Ziel orange ──
+    // ── Säule „noch übrig“: leert sich über den Tag, über dem Ziel orange,
+    //    genau im Ziel (0 übrig) alle Segmente als Limetten-Rahmen ──
     bool valid = s_have_bilanz && synced_today() && s_goal > 0;
     bool over  = valid && s_rest < 0;
+    bool exact = valid && s_rest == 0;
+    // aufrunden: solange noch etwas übrig ist, leuchtet mindestens ein Segment
     int  k_on  = !valid ? 0 : over ? SAEULE_SEGMENTE
-                        : (s_rest * SAEULE_SEGMENTE + s_goal / 2) / s_goal;
+                        : (s_rest * SAEULE_SEGMENTE + s_goal - 1) / s_goal;
     if (k_on > SAEULE_SEGMENTE) k_on = SAEULE_SEGMENTE;
-    draw_column(ctx, GRect(kcal_x, col_y, col_w, col_h), k_on, over ? COL_DANGER : COL_TEXT);
+    GColor k_col = over ? COL_DANGER : exact ? COL_ACCENT : COL_TEXT;
+    draw_column_ex(ctx, GRect(kcal_x, col_y, col_w, col_h), k_on, k_col, exact);
     if (valid) format_num(over ? -s_rest : s_rest, buf, sizeof(buf));
     else       snprintf(buf, sizeof(buf), "-");
     draw_text(ctx, buf, f_step, GRect(kcal_x - gap / 2, y_foot, col_w + gap, 24),
-              over ? COL_DANGER : COL_TEXT, GTextAlignmentCenter);
+              k_col, GTextAlignmentCenter);
     GRect step_box = GRect(col_x - gap / 2, y_foot, col_w + gap, 24);
     int   foot_w   = kcal_x - gap / 2 - x - 4;
   #else

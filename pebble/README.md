@@ -43,7 +43,9 @@ Aktivkalorien des Tages bzw. ein Sync-Fehler.
 
 **Säulen** (Variante von Pixel, ebenfalls `layout_pixel.h`) – zusätzlich eine
 zweite Säule für **noch übrig**: voll am Morgen, leert sich mit jedem Eintrag,
-über dem Ziel komplett orange; darunter der Wert in kcal.
+über dem Ziel komplett orange, genau im Ziel (0 übrig) alle Segmente mit
+Limetten-Rahmen; darunter der Wert in kcal. Solange noch etwas übrig ist,
+leuchtet mindestens ein Segment.
 
 Alle Kalorienwerte sind so aktuell wie der letzte Sync (höchstens eine
 Stunde alt). Das Ziffernblatt sendet außerdem jedes Mal, wenn es neu startet –
