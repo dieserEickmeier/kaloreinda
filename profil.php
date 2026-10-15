@@ -38,6 +38,36 @@ if ($kg && !empty($profil['groesse_cm'])) {
     elseif ($bmi < 35)   { $bmiLabel = 'Adipositas Grad I';   $bmiColor = 'var(--fat)'; }
     elseif ($bmi < 40)   { $bmiLabel = 'Adipositas Grad II';  $bmiColor = 'var(--danger)'; }
     else                 { $bmiLabel = 'Adipositas Grad III'; $bmiColor = 'var(--danger)'; }
+
+    // WHO-Stufen mit den Gewichtsgrenzen für die eigene Größe (Info in der BMI-Kachel)
+    $m2 = ($profil['groesse_cm'] / 100) ** 2;
+    $bmiStufen = [
+        ['Untergewicht',        0,    18.5],
+        ['Normalgewicht',       18.5, 25],
+        ['Übergewicht',         25,   30],
+        ['Adipositas I',        30,   35],
+        ['Adipositas II',       35,   40],
+        ['Adipositas III',      40,   null],
+    ];
+    $fmtKg = fn(float $x): string => number_format($x, 1, ',', '');
+    // Obergrenze „bis unter BMI x“ als höchstes Gewicht mit einer Nachkommastelle
+    $bisKg = fn(float $b): float => ceil($b * $m2 * 10 - 1e-9) / 10 - .1;
+    $vonKg = fn(float $b): float => ceil($b * $m2 * 10 - 1e-9) / 10;
+    // Abstand zur nächsten Stufe in Richtung Normalgewicht
+    $bmiZiel = null;
+    if ($bmi >= 25) {
+        foreach ($bmiStufen as $st) if ($bmi >= $st[1] && ($st[2] === null || $bmi < $st[2])) $unter = $st[1];
+        $zielKg  = $bisKg($unter);
+        $naechst = $bmiStufen[array_search($unter, array_column($bmiStufen, 1)) - 1][0];
+        $bmiZiel = 'Noch <strong>' . $fmtKg($kg - $zielKg) . ' kg</strong> abnehmen bis ' . $naechst
+                 . ' (höchstens ' . $fmtKg($zielKg) . ' kg).';
+        if ($unter > 25) $bmiZiel .= '<br>Bis Normalgewicht: <strong>' . $fmtKg($kg - $bisKg(25)) . ' kg</strong> (höchstens ' . $fmtKg($bisKg(25)) . ' kg).';
+    } elseif ($bmi < 18.5) {
+        $bmiZiel = 'Noch <strong>' . $fmtKg($vonKg(18.5) - $kg) . ' kg</strong> zunehmen bis Normalgewicht (ab ' . $fmtKg($vonKg(18.5)) . ' kg).';
+    } else {
+        $bmiZiel = 'Du liegst im Normalbereich. Bis zur Grenze zum Übergewicht (' . $fmtKg($vonKg(25)) . ' kg) fehlen noch <strong>'
+                 . $fmtKg($vonKg(25) - $kg) . ' kg</strong>.';
+    }
 }
 ?>
 
@@ -53,7 +83,6 @@ if ($kg && !empty($profil['groesse_cm'])) {
 <strong>Grundumsatz (BMR)</strong> – Energieverbrauch in völliger Ruhe, ohne jede Bewegung.<br><br>
 <strong>Gesamtumsatz (TDEE)</strong> – BMR × Aktivitätsfaktor. Sitzend = 1,2 · Sehr aktiv = bis 1,9. Je ehrlicher die Einschätzung, desto genauer das Ziel.<br><br>
 <strong>Kalorienziel</strong> – TDEE minus Defizit. 300–500 kcal Defizit = nachhaltiges Abnehmen ohne Muskelverlust. Über 700 kcal ist langfristig kontraproduktiv.<br><br>
-<strong>BMI</strong> (Körpergewicht ÷ Größe²) nach WHO: unter 18,5 = Untergewicht · 18,5–24,9 = Normalgewicht · 25–29,9 = Übergewicht · 30–34,9 = Adipositas I · 35–39,9 = Adipositas II · ab 40 = Adipositas III. Der BMI berücksichtigt keine Muskelmasse – bei sportlichen Menschen nur bedingt aussagekräftig.<br><br>
 <strong>Tipp:</strong> Gewicht regelmäßig eintragen – besonders bei größeren Veränderungen verbessert das die Genauigkeit deutlich.</div></div>
         <div class="tile__label"><span>Kalorienziel heute</span></div>
         <span class="tile__val" style="font-size:2.4rem;color:var(--accent);"><?= fmtZahl($zielKcal) ?><small> kcal</small></span>
@@ -68,7 +97,19 @@ if ($kg && !empty($profil['groesse_cm'])) {
         <span class="tile__val" style="color:var(--quick);">−<?= $defizit ?><small> kcal</small></span>
     </div>
     <?php if (isset($bmi)): ?>
-    <div class="tile tile--wide" style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;">
+    <div class="tile tile--wide" style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding-right:2.4rem;">
+        <div class="kt-info-card-wrap"><button class="kt-info-btn" type="button" aria-label="Info zum BMI"><i class="bi bi-info-circle"></i></button><div class="kt-tooltip">
+<strong>BMI</strong> = Körpergewicht ÷ Größe². Stufen nach WHO, daneben das Gewicht für deine Größe (<?= (int)$profil['groesse_cm'] ?> cm):
+<div class="bmi-stufen">
+<?php foreach ($bmiStufen as [$name, $von, $bis]):
+    $aktiv = $bmi >= $von && ($bis === null || $bmi < $bis);
+    $bmiTxt = $von == 0 ? 'unter ' . number_format($bis, 1, ',', '') : ($bis === null ? 'ab ' . $von : number_format($von, 1, ',', '') . '–' . number_format($bis - .1, 1, ',', ''));
+    $kgTxt  = $von == 0 ? 'bis ' . $fmtKg($bisKg($bis)) : ($bis === null ? 'ab ' . $fmtKg($vonKg($von)) : $fmtKg($vonKg($von)) . '–' . $fmtKg($bisKg($bis))); ?>
+    <div class="bmi-stufe<?= $aktiv ? ' is-aktiv' : '' ?>"<?= $aktiv ? ' style="color:' . $bmiColor . ';"' : '' ?>><span><?= $name ?></span><span><?= $bmiTxt ?></span><span><?= $kgTxt ?> kg</span></div>
+<?php endforeach; ?>
+</div>
+<?= $bmiZiel ?><br><br>
+Der BMI berücksichtigt keine Muskelmasse – bei sportlichen Menschen nur bedingt aussagekräftig.</div></div>
         <div>
             <div class="tile__label"><span>BMI</span></div>
             <span class="tile__val" style="color:<?= $bmiColor ?>;"><?= number_format($bmi, 1, ',', '') ?></span>
