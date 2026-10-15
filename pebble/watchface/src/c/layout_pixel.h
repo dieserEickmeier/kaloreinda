@@ -42,21 +42,13 @@ static void draw_pixel_digit(GContext *ctx, int d, int x, int y, int c, GColor c
 }
 
 // Segment-Säule, füllt sich von unten mit `on` Segmenten
-// (ring = alle Segmente als Rahmen in dieser Farbe statt gefüllt)
-static void draw_column_ex(GContext *ctx, GRect r, int on, GColor col, bool ring) {
+static void draw_column(GContext *ctx, GRect r, int on, GColor col) {
   int col_x = r.origin.x, col_y = r.origin.y, col_w = r.size.w, col_h = r.size.h;
   for (int i = 0; i < SAEULE_SEGMENTE; i++) {
     int y0 = col_y + col_h - (i + 1) * col_h / SAEULE_SEGMENTE;
     int y1 = col_y + col_h - i * col_h / SAEULE_SEGMENTE;
     GRect seg = GRect(col_x, y0 + 1, col_w, y1 - y0 - 3);
-    if (ring) {
-      #if defined(PBL_COLOR)
-        graphics_context_set_fill_color(ctx, COL_TRACK);
-        graphics_fill_rect(ctx, seg, 2, GCornersAll);
-      #endif
-      graphics_context_set_stroke_color(ctx, col);
-      graphics_draw_round_rect(ctx, seg, 2);
-    } else if (i < on) {
+    if (i < on) {
       graphics_context_set_fill_color(ctx, col);
       graphics_fill_rect(ctx, seg, 2, GCornersAll);
     } else {
@@ -71,9 +63,50 @@ static void draw_column_ex(GContext *ctx, GRect r, int on, GColor col, bool ring
   }
 }
 
-static void draw_column(GContext *ctx, GRect r, int on, GColor col) {
-  draw_column_ex(ctx, r, on, col, false);
+#if defined(LAYOUT_SAEULEN)
+#define COL_EATEN  COL_TEXT                                        // gegessen
+#define COL_BONUS  PBL_IF_COLOR_ELSE(GColorVividCerulean, GColorWhite)   // frei dank Aktivität
+
+// Kalorien-Säule wie der Tagesbalken der App: von unten gegessen (weiß),
+// darüber frei (grau), ganz oben der Bonus aus Bewegung (blau), über dem Ziel orange.
+// Genau im Ziel ist sie also komplett weiß.
+static void draw_kcal_column(GContext *ctx, GRect r) {
+  const int n = SAEULE_SEGMENTE;
+  int eaten = s_eaten > 0 ? s_eaten : 0;
+  int aktiv = s_aktiv > 0 ? (s_aktiv < s_goal ? s_aktiv : s_goal) : 0;
+  int tot   = s_goal > eaten ? s_goal : eaten;
+  int n_goal = (s_goal * n + tot / 2) / tot;
+  if (eaten > s_goal && n_goal >= n) n_goal = n - 1;   // drüber → mindestens ein oranges Segment
+  int n_basis = ((s_goal - aktiv) * n + tot / 2) / tot;
+  if (aktiv > 0 && n_basis >= n_goal) n_basis = n_goal - 1;
+  int n_eat = ((eaten < s_goal ? eaten : s_goal) * n + tot / 2) / tot;
+  if (eaten > 0 && n_eat == 0) n_eat = 1;
+  if (s_rest > 0 && n_eat >= n_goal) n_eat = n_goal - 1;   // noch etwas frei → sichtbar
+  if (s_rest <= 0 && eaten >= s_goal) n_eat = n_goal;      // genau im Ziel → voll
+
+  for (int i = 0; i < n; i++) {
+    int y0 = r.origin.y + r.size.h - (i + 1) * r.size.h / n;
+    int y1 = r.origin.y + r.size.h - i * r.size.h / n;
+    GRect seg = GRect(r.origin.x, y0 + 1, r.size.w, y1 - y0 - 3);
+    bool filled = true;
+    GColor col;
+    if      (i >= n_goal)  col = COL_DANGER;
+    else if (i < n_eat)    col = COL_EATEN;
+    else if (i >= n_basis) col = COL_BONUS;
+    else                 { col = COL_TRACK; filled = PBL_IF_COLOR_ELSE(true, false); }
+    #if !defined(PBL_COLOR)
+      if (i >= n_basis && i >= n_eat && i < n_goal) filled = false;   // Schwarzweiß: Bonus als Rahmen
+    #endif
+    if (filled) {
+      graphics_context_set_fill_color(ctx, col);
+      graphics_fill_rect(ctx, seg, 2, GCornersAll);
+    } else {
+      graphics_context_set_stroke_color(ctx, COL_TEXT);
+      graphics_draw_rect(ctx, seg);
+    }
+  }
 }
+#endif
 
 static void canvas_update(Layer *layer, GContext *ctx) {
   GRect b   = layer_get_bounds(layer);
@@ -135,21 +168,15 @@ static void canvas_update(Layer *layer, GContext *ctx) {
   draw_column(ctx, GRect(col_x, col_y, col_w, col_h), on, COL_ACCENT);
 
   #if defined(LAYOUT_SAEULEN)
-    // ── Säule „noch übrig“: leert sich über den Tag, über dem Ziel orange,
-    //    genau im Ziel (0 übrig) alle Segmente als Limetten-Rahmen ──
+    // ── Kalorien-Säule: gegessen │ frei │ Bonus aus Bewegung, über dem Ziel orange ──
     bool valid = s_have_bilanz && synced_today() && s_goal > 0;
     bool over  = valid && s_rest < 0;
-    bool exact = valid && s_rest == 0;
-    // aufrunden: solange noch etwas übrig ist, leuchtet mindestens ein Segment
-    int  k_on  = !valid ? 0 : over ? SAEULE_SEGMENTE
-                        : (s_rest * SAEULE_SEGMENTE + s_goal - 1) / s_goal;
-    if (k_on > SAEULE_SEGMENTE) k_on = SAEULE_SEGMENTE;
-    GColor k_col = over ? COL_DANGER : exact ? COL_ACCENT : COL_TEXT;
-    draw_column_ex(ctx, GRect(kcal_x, col_y, col_w, col_h), k_on, k_col, exact);
+    if (valid) draw_kcal_column(ctx, GRect(kcal_x, col_y, col_w, col_h));
+    else       draw_column(ctx, GRect(kcal_x, col_y, col_w, col_h), 0, COL_TEXT);
     if (valid) format_num(over ? -s_rest : s_rest, buf, sizeof(buf));
     else       snprintf(buf, sizeof(buf), "-");
     draw_text(ctx, buf, f_step, GRect(kcal_x - gap / 2, y_foot, col_w + gap, 24),
-              k_col, GTextAlignmentCenter);
+              over ? COL_DANGER : COL_TEXT, GTextAlignmentCenter);
     GRect step_box = GRect(col_x - gap / 2, y_foot, col_w + gap, 24);
     int   foot_w   = kcal_x - gap / 2 - x - 4;
   #else
@@ -169,7 +196,12 @@ static void canvas_update(Layer *layer, GContext *ctx) {
     char num[12];
     format_num(s_have_bilanz ? s_aktiv : s_last_kcal, num, sizeof(num));
     snprintf(buf, sizeof(buf), "%s kcal aktiv%s", num, s_state == SYNC_SENDING ? " ..." : "");
-    draw_text(ctx, buf, f_info, GRect(x + 2, y_foot + (big ? 4 : 4), foot_w, 18), COL_MUTED, GTextAlignmentLeft);
+    #if defined(LAYOUT_SAEULEN)
+      GColor aktiv_col = COL_BONUS;   // gleiche Farbe wie der Bonus in der Säule
+    #else
+      GColor aktiv_col = COL_MUTED;
+    #endif
+    draw_text(ctx, buf, f_info, GRect(x + 2, y_foot + (big ? 4 : 4), foot_w, 18), aktiv_col, GTextAlignmentLeft);
   } else {
     draw_text(ctx, "Noch kein Sync heute", f_info, GRect(x + 2, y_foot + 4, foot_w, 18), COL_MUTED, GTextAlignmentLeft);
   }
