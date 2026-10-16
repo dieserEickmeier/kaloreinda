@@ -62,7 +62,9 @@ unter dem Tagesbalken angezeigt und erst zur nächsten vollen Stunde erneut
 versucht.
 
 Warnsymbole (nur im Warnfall, rot, rechts oben unter dem Datum): **Bluetooth zum Handy getrennt** und
-**Akku unter 15 %** (nicht beim Laden; die Pebble meldet den Akku in 10-%-Schritten).
+**Akku unter 15 %** (nicht beim Laden; die Pebble meldet den Akku in 10-%-Schritten)
+sowie eine **Mondsichel bei aktivem Ruhemodus** (Quiet Time; wird mindestens jede
+Minute geprüft, die Firmware meldet keinen Wechsel).
 
 ## `sync-app/` – App „Kalorien Sync“ (manueller Sync)
 

@@ -27,7 +27,7 @@
 // nächsten vollen Stunde.
 //
 // Warnsymbole (nur im Warnfall sichtbar): Bluetooth zum Handy getrennt,
-// Akku der Uhr unter 15 % (nicht beim Laden).
+// Akku der Uhr unter 15 % (nicht beim Laden), Ruhemodus (Quiet Time) an.
 // ─────────────────────────────────────────────────────────────────────────────
 #include <pebble.h>
 
@@ -295,18 +295,37 @@ static int draw_battery_low_icon(GContext *ctx, GPoint o, bool big) {
   return w + 2;
 }
 
+// Mondsichel: Ruhemodus (Quiet Time) an
+static int draw_quiet_icon(GContext *ctx, GPoint o, bool big) {
+  int d = big ? 14 : 10, r = d / 2;
+  GPoint c = GPoint(o.x + r, o.y + (ICON_H(big) - d) / 2 + r);
+  graphics_context_set_fill_color(ctx, COL_DANGER);
+  graphics_fill_circle(ctx, c, r);
+  graphics_context_set_fill_color(ctx, COL_BG);   // ausgeschnittene Scheibe rechts oben
+  graphics_fill_circle(ctx, GPoint(c.x + r * 2 / 3, c.y - r / 3), r - 1);
+  return d;
+}
+
+// Für den Ruhemodus gibt es kein Ereignis – er wird bei jedem Zeichnen
+// abgefragt (mindestens jede Minute durch den Tick)
+static bool quiet_on(void) {
+  return quiet_time_is_active();
+}
+
 // Breite aller aktiven Warnsymbole (für die Ausrichtung)
 static int warn_icons_width(bool big) {
   int gap = 6, wsum = 0;
   if (!s_bt_connected) wsum += (big ? 10 : 8);
   if (battery_low())   wsum += (wsum ? gap : 0) + (big ? 20 : 16);
+  if (quiet_on())      wsum += (wsum ? gap : 0) + (big ? 14 : 10);
   return wsum;
 }
 
 // Zeichnet die aktiven Symbole ab x nebeneinander
 static void draw_warn_icons(GContext *ctx, int x, int y, bool big) {
   if (!s_bt_connected) x += draw_bt_off_icon(ctx, GPoint(x, y), big) + 6;
-  if (battery_low())   draw_battery_low_icon(ctx, GPoint(x, y), big);
+  if (battery_low())   x += draw_battery_low_icon(ctx, GPoint(x, y), big) + 6;
+  if (quiet_on())      draw_quiet_icon(ctx, GPoint(x, y), big);
 }
 // ── Layout (beim Build gewählt, siehe wscript: LAYOUT=hero|bento|pixel|saeulen)
 //
