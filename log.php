@@ -24,19 +24,24 @@ $stmtPf = $db->prepare("SELECT * FROM profil WHERE user_id = ? LIMIT 1");
 $stmtPf->bind_param('i', $userId);
 $stmtPf->execute();
 $profilFull = $stmtPf->get_result()->fetch_assoc() ?: [];
-$restHeute  = $pickMode ? null
-    : ladeTageswerte($db, $userId, $profilFull, date('Y-m-d'), date('Y-m-d'))[date('Y-m-d')]['uebrig'];
+// – für vorgeplante Einträge (Umschalter „Morgen“) der Rest von morgen: Ziel
+// ohne Aktivität, abzüglich dessen, was für morgen schon eingetragen ist
+$restHeute = $restMorgen = null;
+if (!$pickMode) {
+    $tw = ladeTageswerte($db, $userId, $profilFull, date('Y-m-d'), date('Y-m-d', strtotime('+1 day')));
+    [$restHeute, $restMorgen] = array_column(array_values($tw), 'uebrig');
+}
 
 renderHeader('Erfassen', 'log');
 ?>
 <?php renderPageHeader($pickMode ? 'Zutat wählen' : 'Erfassen',
-    $pickMode ? '' : '<a href="/gerichte.php" class="icon-btn" aria-label="Gerichte verwalten"><i class="bi bi-journal-richtext"></i></a>'); ?>
+    $pickMode ? '' : '<a href="/gerichte.php" data-tag-link class="icon-btn" aria-label="Gerichte verwalten"><i class="bi bi-journal-richtext"></i></a>'); ?>
 <?php if ($pickMode): ?>
 <div class="pick-banner">
     <span><i class="bi bi-journal-richtext text-accent me-1"></i> Zutat für Gericht auswählen</span>
     <button type="button" id="btnPickAbbrechen" class="btn-link-muted">Abbrechen</button>
 </div>
-<?php endif; ?>
+<?php else: renderTagSwitch(buchungsTagMorgen()); endif; ?>
 
 <!-- ── Erfassen-Aktionen ───────────────────────────────────────── -->
 <div class="log-actions">
@@ -104,7 +109,7 @@ renderHeader('Erfassen', 'log');
 <?php if (!$pickMode): ?>
 <!-- ── Häufige Gerichte ───────────────────────────────────────── -->
 <div id="gerichteSectionWrapper">
-    <div class="section-label"><span>Häufige Gerichte</span><a href="/gerichte.php" class="section-link">Alle <i class="bi bi-chevron-right"></i></a></div>
+    <div class="section-label"><span>Häufige Gerichte</span><a href="/gerichte.php" data-tag-link class="section-link">Alle <i class="bi bi-chevron-right"></i></a></div>
     <div id="topGerichteChips" class="pick-grid pick-grid--1">
         <span class="pick-empty">Wird geladen…</span>
     </div>
@@ -257,7 +262,7 @@ renderHeader('Erfassen', 'log');
             <?php if (!$pickMode): ?>
             <div class="ziel-toggle-wrap">
                 <button type="button" class="portion-toggle active" id="manualZielHeute">
-                    <i class="bi bi-calendar-check"></i> Heute eintragen
+                    <i class="bi bi-calendar-check"></i> <span class="tag-label">Heute eintragen</span>
                 </button>
                 <button type="button" class="portion-toggle" id="manualZielSpeichern">
                     <i class="bi bi-archive"></i> Nur anlegen
@@ -421,7 +426,7 @@ renderHeader('Erfassen', 'log');
         <?php if (!$pickMode): ?>
         <div class="ziel-toggle-wrap">
             <button type="button" class="portion-toggle active" id="ocrZielHeute">
-                <i class="bi bi-calendar-check"></i> Heute eintragen
+                <i class="bi bi-calendar-check"></i> <span class="tag-label">Heute eintragen</span>
             </button>
             <button type="button" class="portion-toggle" id="ocrZielSpeichern">
                 <i class="bi bi-archive"></i> Nur anlegen
@@ -733,11 +738,13 @@ function updateKcalPreview() {
 }
 
 // „danach X übrig“ im Sheet – Tagesrest kommt aus PHP (wie auf „Heute“)
-const REST_HEUTE = <?= $restHeute === null ? 'null' : (int)round($restHeute) ?>;
+const REST_HEUTE  = <?= $restHeute  === null ? 'null' : (int)round($restHeute) ?>;
+const REST_MORGEN = <?= $restMorgen === null ? 'null' : (int)round($restMorgen) ?>;
 function updateDanach(elId, kcal) {
     const el = document.getElementById(elId);
-    if (!el || REST_HEUTE === null) return;
-    const r = REST_HEUTE - kcal;
+    const rest = istMorgen() ? REST_MORGEN : REST_HEUTE;
+    if (!el || rest === null) return;
+    const r = rest - kcal;
     const b = el.querySelector('b');
     b.textContent = Math.abs(r).toLocaleString('de-DE') + (r >= 0 ? ' übrig' : ' drüber');
     b.classList.toggle('over', r < 0);
@@ -946,14 +953,14 @@ document.getElementById('btnSchnellSpeichern').addEventListener('click', async (
                 eiweiss: parseFloat(document.getElementById('sfEiweiss').value) || 0,
                 fett:    parseFloat(document.getElementById('sfFett').value)    || 0,
                 kh:      parseFloat(document.getElementById('sfKh').value)      || 0,
-                datum:   heuteISO(),
+                datum:   buchungsDatum(),
             }),
         });
         const d = await r.json();
         if (d.ok) {
-            showToast('✓ Eingetragen!');
+            showToast(buchungsToast());
             closeSchnellModal();
-            setTimeout(() => location.href = '/index.php', 900);
+            nachBuchung();
         } else showToast('Fehler: ' + (d.error || 'Unbekannt'));
     } catch(e) { showToast('Verbindungsfehler'); }
     finally { btn.disabled = false; }
@@ -1938,14 +1945,14 @@ async function ocrSave() {
                 eiweiss: Math.round((parseFloat(document.getElementById('ocrEiweiss').value)||0) * menge/100 * 10)/10,
                 fett:    Math.round((parseFloat(document.getElementById('ocrFett').value)   ||0) * menge/100 * 10)/10,
                 kh:      Math.round((parseFloat(document.getElementById('ocrKh').value)     ||0) * menge/100 * 10)/10,
-                datum:   heuteISO(),
+                datum:   buchungsDatum(),
             }),
         });
         const dE = await rE.json();
         if (dE.ok) {
-            showToast('✓ Eingetragen!');
+            showToast(buchungsToast());
             closeOcrResult();
-            setTimeout(() => location.href = '/index.php', 900);
+            nachBuchung();
         } else throw new Error(dE.error);
     } catch(e) { showToast('Fehler: ' + e.message); }
     finally { btn.disabled = false; }
@@ -2065,11 +2072,11 @@ document.getElementById('btnSpeichern').addEventListener('click', async () => {
                 eiweiss: Math.round(eiweiss100 * f * 10) / 10,
                 fett:    Math.round(fett100    * f * 10) / 10,
                 kh:      Math.round(kh100      * f * 10) / 10,
-                datum:   heuteISO(),
+                datum:   buchungsDatum(),
             }),
         });
         const d = await r.json();
-        if (d.ok) { showToast('✓ Eingetragen!'); setTimeout(() => location.href = '/index.php', 900); }
+        if (d.ok) { showToast(buchungsToast()); nachBuchung(); }
         else showToast('Fehler: ' + (d.error || 'Unbekannt'));
     } catch(e) { showToast('Verbindungsfehler'); } finally { btn.disabled = false; }
 });
@@ -2148,12 +2155,12 @@ document.getElementById('btnEintragen').addEventListener('click', async () => {
                 eiweiss: Math.round(currentProduct.eiweiss_100g * f * 10) / 10,
                 fett:    Math.round(currentProduct.fett_100g    * f * 10) / 10,
                 kh:      Math.round(currentProduct.kh_100g      * f * 10) / 10,
-                datum:   heuteISO(),
+                datum:   buchungsDatum(),
             }),
         });
         if (!r.ok) { const t = await r.text(); showToast('Server-Fehler (' + r.status + ')'); return; }
         const d = await r.json();
-        if (d.ok) { showToast('✓ Eingetragen!'); setTimeout(() => location.href = '/index.php', 900); }
+        if (d.ok) { showToast(buchungsToast()); nachBuchung(); }
         else showToast('Fehler: ' + (d.error || 'Unbekannt'));
     } catch(e) { showToast('Verbindungsfehler'); } finally { btn.disabled = false; }
 });
@@ -2338,7 +2345,7 @@ document.getElementById('gerichtEintragenModal').addEventListener('click', funct
 document.getElementById('btnGerichtEintragen').addEventListener('click', async () => {
     if (!_currentGericht) return;
     const val   = parseFloat(document.getElementById('gerichtEintragenPortionen').value) || 1;
-    const datum = heuteISO();
+    const datum = buchungsDatum();
     const payload = { gericht_id: _currentGericht.id, datum };
     if (_gerichtModus === 'gramm') payload.menge_g = val;
     else                           payload.portionen = val;
@@ -2350,8 +2357,8 @@ document.getElementById('btnGerichtEintragen').addEventListener('click', async (
     const d = await r.json();
     closeGerichtEintragenModal();
     if (d.ok) {
-        showToast(`Gericht eingetragen (${d.eingetragen} Zutaten)`);
-        setTimeout(() => { location.href = '/'; }, 800);
+        showToast(istMorgen() ? `Für morgen eingetragen (${d.eingetragen} Zutaten)` : `Gericht eingetragen (${d.eingetragen} Zutaten)`);
+        nachBuchung(800);
     } else showToast('Fehler: ' + (d.error || 'Unbekannt'));
 });
 

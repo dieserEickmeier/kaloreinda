@@ -392,6 +392,51 @@ a { color: var(--accent); }
 }
 .seg .active { background: var(--surface3); color: var(--text); }
 
+/* Buchungstag „Heute | Morgen“ (Erfassen, Gerichte) – Morgen in Akzentfarbe,
+   damit man nicht versehentlich vorplant */
+.tag-seg { margin: .1rem .85rem .75rem; }
+.tag-seg button { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; }
+.tag-seg small { font-weight: 500; opacity: .7; }
+.tag-seg [data-tag="morgen"].active { background: var(--accent); color: var(--accent-ink); }
+.tag-hint {
+    margin: -.35rem .85rem .75rem; padding: .55rem .8rem;
+    border-radius: 12px; background: var(--accent-soft);
+    font-size: .82rem; color: var(--text);
+}
+.tag-hint b { color: var(--accent); font-weight: 600; }
+.tag-hint[hidden] { display: none; }
+
+/* ── Morgen: vorgeplante Einträge (Heute-Seite) ──────────────────── */
+.plan-cta {
+    display: flex; align-items: center; gap: .8rem;
+    margin: 1.25rem .85rem 0; padding: .85rem 1rem;
+    border: 1px dashed var(--border); border-radius: 18px;
+    color: var(--text); text-decoration: none;
+}
+.plan-cta > .bi:first-child { font-size: 1.25rem; color: var(--accent); }
+.plan-cta > .bi:last-child  { margin-left: auto; color: var(--muted); font-size: .85rem; }
+.plan-cta b     { display: block; font-size: .95rem; font-weight: 600; }
+.plan-cta small { display: block; font-size: .78rem; color: var(--muted); }
+.plan-card {
+    margin: 1.25rem .85rem 0; padding: 1rem 1rem .35rem;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+}
+.plan-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
+.plan-over {
+    display: block; font-size: .72rem; font-weight: 600; color: var(--accent);
+    text-transform: uppercase; letter-spacing: .1em;
+}
+.plan-head b { display: block; font-size: 1.6rem; font-weight: 700; letter-spacing: -.02em; margin-top: .1rem; }
+.plan-head b small { font-size: .85rem; color: var(--muted); font-weight: 500; letter-spacing: 0; }
+.plan-card .pbar { height: 8px; margin-top: .7rem; }
+.plan-card .pb-plan { background: var(--accent); }
+.plan-card .pleg { margin-top: .45rem; }
+.plan-card .over { color: var(--danger); }
+.plan-list { margin: .5rem -.4rem 0; }
+.plan-list .swipe-entry:last-child .swipe-entry__content { border-bottom: none; }
+.plan-list .swipe-entry__content { background: var(--surface); }
+.tl-time .bi { color: var(--accent); }
+
 /* ── Kennzahlen-Leiste ───────────────────────────────────────────── */
 .stat3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: .75rem .85rem 0; }
 .stat3 > div { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: .65rem .8rem; }

@@ -1,6 +1,12 @@
 <?php
 require_once __DIR__ . '/config.php';
 
+// Zeitzone: „heute“ ist der Tag in Deutschland. Ohne das rechnet PHP im
+// Container in UTC – zwischen 0 und 2 Uhr galt dann noch der Vortag (Heute-
+// Seite, Ziele, Pebble-Sync), während die Einträge vom Handy schon das neue
+// Datum hatten.
+date_default_timezone_set('Europe/Berlin');
+
 function db(): mysqli {
     static $conn = null;
     if ($conn === null) {
@@ -20,6 +26,11 @@ function db(): mysqli {
             die(json_encode(['error' => 'Datenbankverbindung fehlgeschlagen']));
         }
         $conn->set_charset('utf8mb4');
+        // Datenbank auf denselben Versatz wie PHP (CURDATE(), NOW(), Anzeige
+        // von TIMESTAMP-Spalten) – unabhängig von der Systemzeit des DB-Servers.
+        // Als Offset statt 'Europe/Berlin', weil MariaDB benannte Zonen nur
+        // mit geladenen Zeitzonentabellen kennt.
+        $conn->query("SET time_zone = '" . date('P') . "'");
     }
     return $conn;
 }

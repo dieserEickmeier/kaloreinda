@@ -137,6 +137,22 @@ foreach ($anzeige as $idx => $g) {
 }
 usort($zeitleiste, fn($a, $b) => strcmp($b['zeit'], $a['zeit']));
 
+// ─── Morgen: schon vorgeplante Einträge ──────────────────────────────────────
+// Ganz normale Einträge mit dem Datum von morgen (Erfassen → „Morgen“). Ziel
+// wie bei jedem Tag, nur ohne Aktivität – die kommt erst morgen dazu.
+$morgen = date('Y-m-d', strtotime('+1 day'));
+$stmt = $db->prepare("SELECT e.id, e.name, e.menge_g, e.kcal, e.gericht_id, e.produkt_id, e.erstellt_am, p.quelle FROM eintraege e LEFT JOIN produkte p ON p.id = e.produkt_id WHERE e.datum = ? AND e.user_id = ? ORDER BY e.erstellt_am, e.id");
+$stmt->bind_param('si', $morgen, $userId);
+$stmt->execute();
+$plan = [];   // Gerichte (alle Zutaten einer Buchung) als eine Zeile
+foreach ($stmt->get_result()->fetch_all(MYSQLI_ASSOC) as $e) {
+    $key = $e['gericht_id'] ? 'g' . $e['gericht_id'] . '-' . $e['erstellt_am'] : 'e' . $e['id'];
+    $plan[$key][] = $e;
+}
+$planKcal  = array_sum(array_map(fn($g) => array_sum(array_column($g, 'kcal')), $plan));
+$planZiel  = $plan ? ladeTageswerte($db, $userId, $profil ?: [], $morgen, $morgen)[$morgen]['basisZiel'] : 0;
+$planRest  = $planZiel - $planKcal;
+
 $wtLang   = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'][(int)date('w')];
 $monate   = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 $datumLang = $wtLang . ', ' . date('j') . '. ' . $monate[(int)date('n') - 1];
@@ -164,6 +180,13 @@ function swipeActions(array $e, bool $mitEdit = true): string {
 }
 
 function uhrzeit(string $ts): string { return date('H:i', strtotime($ts)); }
+
+/** Uhrzeit in der Zeitleiste – vorgeplante Einträge (gestern angelegt) mit Kalender statt Uhrzeit. */
+function zeitZelle(string $ts): string {
+    return date('Y-m-d', strtotime($ts)) < date('Y-m-d')
+        ? '<i class="bi bi-calendar-check" title="Vorgeplant" aria-label="Vorgeplant"></i>'
+        : uhrzeit($ts);
+}
 ?>
 
 <?php renderPageHeader('Heute',
@@ -280,7 +303,7 @@ function uhrzeit(string $ts): string { return date('H:i', strtotime($ts)); }
     ?>
     <div class="group-entry" id="gericht-group-<?= $gid ?>">
         <div class="tl-item" onclick="toggleGroup('g<?= $gid ?>')" role="button" aria-expanded="false" aria-controls="subs-g<?= $gid ?>">
-            <span class="tl-time"><?= uhrzeit($item['zeit']) ?></span>
+            <span class="tl-time"><?= zeitZelle($item['zeit']) ?></span>
             <span class="tl-dot src-dish"></span>
             <div class="tl-text"><span class="tl-name"><?= htmlspecialchars($name) ?></span><span class="tl-meta">Gericht · <?= count($gE) ?> Zutaten</span></div>
             <span class="tl-kcal num"><?= round(array_sum(array_column($gE, 'kcal'))) ?></span>
@@ -305,7 +328,7 @@ function uhrzeit(string $ts): string { return date('H:i', strtotime($ts)); }
     ?>
     <div class="group-entry" id="group-<?= $idx ?>">
         <div class="tl-item" onclick="toggleGroup(<?= $idx ?>)" role="button" aria-expanded="false" aria-controls="subs-<?= $idx ?>">
-            <span class="tl-time"><?= uhrzeit($item['zeit']) ?></span>
+            <span class="tl-time"><?= zeitZelle($item['zeit']) ?></span>
             <span class="tl-dot <?= $cls ?>"></span>
             <div class="tl-text"><span class="tl-name"><?= htmlspecialchars($g['name']) ?></span><span class="tl-meta"><?= fmtMenge($g['menge_g']) ?> g · <?= count($g['sub']) ?>×</span></div>
             <span class="tl-kcal num"><?= round($g['kcal']) ?></span>
@@ -315,7 +338,7 @@ function uhrzeit(string $ts): string { return date('H:i', strtotime($ts)); }
             <?php foreach ($g['sub'] as $e): ?>
             <div class="swipe-entry" id="entry-<?= $e['id'] ?>">
                 <div class="swipe-entry__content" <?= editAttrs($e) ?>>
-                    <div class="tl-text"><span class="tl-name"><?= fmtMenge($e['menge_g']) ?> g</span><span class="tl-meta"><?= uhrzeit($e['erstellt_am']) ?></span></div>
+                    <div class="tl-text"><span class="tl-name"><?= fmtMenge($e['menge_g']) ?> g</span><span class="tl-meta"><?= zeitZelle($e['erstellt_am']) ?></span></div>
                     <span class="tl-kcal num"><?= round($e['kcal']) ?></span>
                 </div>
                 <?= swipeActions($e) ?>
@@ -334,7 +357,7 @@ function uhrzeit(string $ts): string { return date('H:i', strtotime($ts)); }
     ?>
     <div class="swipe-entry<?= $quick ? ' single-action' : '' ?>" id="entry-<?= $e['id'] ?>">
         <div class="swipe-entry__content" <?= $quick ? '' : editAttrs($e) ?>>
-            <span class="tl-time"><?= uhrzeit($e['erstellt_am']) ?></span>
+            <span class="tl-time"><?= zeitZelle($e['erstellt_am']) ?></span>
             <span class="tl-dot <?= $cls ?>" title="<?= entrySourceLabel($cls) ?>"></span>
             <div class="tl-text"><span class="tl-name"><?= htmlspecialchars($e['name']) ?></span><span class="tl-meta"><?= $meta ?></span></div>
             <span class="tl-kcal num"><?= round($e['kcal']) ?></span>
@@ -345,6 +368,60 @@ function uhrzeit(string $ts): string { return date('H:i', strtotime($ts)); }
 
 <?php endforeach; ?>
 </div>
+<?php endif; ?>
+
+<!-- ── Morgen: vorgeplante Einträge ────────────────────────────── -->
+<?php if (!$plan): ?>
+<a href="/log.php?tag=morgen" class="plan-cta" id="morgen">
+    <i class="bi bi-calendar-plus"></i>
+    <span><b>Morgen vorplanen</b><small>Schon heute für <?= datumLang($morgen) ?> eintragen</small></span>
+    <i class="bi bi-chevron-right"></i>
+</a>
+<?php else:
+    $pTotal = max(1, $planZiel, $planKcal);
+?>
+<section class="plan-card" id="morgen">
+    <div class="plan-head">
+        <div>
+            <span class="plan-over">Morgen · <?= wochentagKurz($morgen) ?> <?= date('j.', strtotime($morgen)) ?></span>
+            <b class="num"><?= fmtZahl($planKcal) ?> <small>kcal geplant</small></b>
+        </div>
+        <a href="/log.php?tag=morgen" class="icon-btn sm" aria-label="Weitere für morgen eintragen"><i class="bi bi-plus-lg"></i></a>
+    </div>
+    <div class="pbar" role="img" aria-label="<?= fmtZahl($planKcal) ?> von <?= fmtZahl($planZiel) ?> kcal geplant">
+        <i class="pb-plan" style="width:<?= round(min($planKcal, $planZiel) / $pTotal * 100, 1) ?>%"></i>
+        <?php if ($planKcal > $planZiel): ?><i class="pb-over" style="width:<?= round(($planKcal - $planZiel) / $pTotal * 100, 1) ?>%"></i><?php endif; ?>
+    </div>
+    <div class="pleg">
+        <span><?= $planRest >= 0 ? 'noch <b class="num">' . fmtZahl($planRest) . '</b> frei' : '<b class="num over">' . fmtZahl(-$planRest) . '</b> über dem Ziel' ?></span>
+        <span>Ziel <b class="num"><?= fmtZahl($planZiel) ?></b> + Aktivität</span>
+    </div>
+    <div class="plan-list">
+    <?php foreach ($plan as $g):
+        $e     = $g[0];
+        $ids   = implode(',', array_column($g, 'id'));
+        $dish  = (bool)$e['gericht_id'];
+        $cls   = $dish ? 'src-dish' : entrySourceClass(null, $e['quelle'] ?? null, $e['produkt_id'] === null ? null : (int)$e['produkt_id']);
+        $name  = $dish ? preg_replace('/:.*$/', '', $e['name']) : $e['name'];
+        $meta  = $dish ? 'Gericht · ' . count($g) . ' Zutaten' : ($cls === 'src-quick' ? 'Schneller Eintrag' : fmtMenge($e['menge_g']) . ' g');
+        $edit  = !$dish && $cls !== 'src-quick';
+    ?>
+        <div class="swipe-entry<?= $edit ? '' : ' single-action' ?>" id="entry-<?= $e['id'] ?>">
+            <div class="swipe-entry__content" <?= $edit ? editAttrs($e) : '' ?>>
+                <span class="tl-dot <?= $cls ?>"></span>
+                <div class="tl-text"><span class="tl-name"><?= htmlspecialchars($name) ?></span><span class="tl-meta"><?= $meta ?></span></div>
+                <span class="tl-kcal num"><?= round(array_sum(array_column($g, 'kcal'))) ?></span>
+            </div>
+            <div class="swipe-entry__actions">
+                <?php if ($edit): ?>
+                <button class="swipe-action-edit" data-entry-id="<?= $e['id'] ?>" data-entry-name="<?= htmlspecialchars($e['name'], ENT_QUOTES) ?>" data-menge-g="<?= (float)$e['menge_g'] ?>" data-kcal100g="<?= $e['menge_g'] > 0 ? round($e['kcal'] / $e['menge_g'] * 100, 2) : 0 ?>"><i class="bi bi-pencil"></i>Bearbeiten</button>
+                <?php endif; ?>
+                <button class="swipe-action-delete" data-entry-ids="<?= $ids ?>"><i class="bi bi-trash3"></i>Löschen</button>
+            </div>
+        </div>
+    <?php endforeach; ?>
+    </div>
+</section>
 <?php endif; ?>
 
 <!-- ── Toast ─────────────────────────────────────────────────────── -->

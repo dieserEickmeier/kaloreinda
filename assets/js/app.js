@@ -8,6 +8,56 @@ function heuteISO() {
     const d = new Date(), pad = n => String(n).padStart(2, '0');
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 }
+function morgenISO() {
+    const d = new Date(), pad = n => String(n).padStart(2, '0');
+    d.setDate(d.getDate() + 1);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+// ── Buchungstag (Erfassen, Gerichte): Umschalter „Heute | Morgen“ ─────────
+// Der Umschalter (#tagSeg, renderTagSwitch() in ui.php) entscheidet, auf
+// welchen Tag Einträge gebucht werden. Der Zustand steht in der URL
+// (?tag=morgen) – so überlebt er ein Neuladen, ein normaler Aufruf von
+// „Erfassen“ startet aber immer bei „Heute“ (kein versehentliches Vorplanen).
+function istMorgen() {
+    return document.getElementById('tagSeg')?.dataset.tag === 'morgen';
+}
+function buchungsDatum() { return istMorgen() ? morgenISO() : heuteISO(); }
+// Nach dem Eintragen zurück zu „Heute“ – bei „Morgen“ direkt zur Planungskarte
+function nachBuchung(ms = 900) {
+    setTimeout(() => { location.href = istMorgen() ? '/index.php#morgen' : '/index.php'; }, ms);
+}
+function buchungsToast(text = '✓ Eingetragen!') {
+    return istMorgen() ? '✓ Für morgen eingetragen' : text;
+}
+function setBuchungsTag(tag) {
+    const seg = document.getElementById('tagSeg');
+    if (!seg) return;
+    seg.dataset.tag = tag;
+    seg.querySelectorAll('[data-tag]').forEach(b => {
+        const on = b.dataset.tag === tag;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    const m = tag === 'morgen';
+    document.getElementById('tagHint')?.toggleAttribute('hidden', !m);
+    document.querySelectorAll('.tag-label').forEach(el => { el.textContent = m ? 'Morgen eintragen' : 'Heute eintragen'; });
+    // Links zu Erfassen/Gerichte nehmen den Tag mit
+    document.querySelectorAll('a[data-tag-link]').forEach(a => {
+        const u = new URL(a.href, location.href);
+        if (m) u.searchParams.set('tag', 'morgen'); else u.searchParams.delete('tag');
+        a.href = u.pathname + u.search + u.hash;
+    });
+    const u = new URL(location.href);
+    if (m) u.searchParams.set('tag', 'morgen'); else u.searchParams.delete('tag');
+    history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+}
+document.addEventListener('DOMContentLoaded', () => {
+    const seg = document.getElementById('tagSeg');
+    if (!seg) return;
+    seg.querySelectorAll('[data-tag]').forEach(b => b.addEventListener('click', () => setBuchungsTag(b.dataset.tag)));
+    setBuchungsTag(seg.dataset.tag);
+});
 
 document.addEventListener('click', (e) => {
     const btn = e.target.closest('button, a.scan-btn');
@@ -91,11 +141,11 @@ function initSwipeEntries() {
                 if (wasSwiping) return;
                 e.preventDefault();
                 e.stopPropagation();
-                deleteEntryGlobal(parseInt(delBtn.dataset.entryId));
+                deleteEntryGlobal(entryIds(delBtn));
             }, { passive: false });
             delBtn.addEventListener('click', e => {
                 e.stopPropagation();
-                deleteEntryGlobal(parseInt(delBtn.dataset.entryId));
+                deleteEntryGlobal(entryIds(delBtn));
             });
         }
     });
@@ -148,17 +198,27 @@ async function saveEditEntry() {
     } catch(e) { alert('Verbindungsfehler'); }
 }
 
-async function deleteEntryGlobal(id) {
-    if (!confirm('Eintrag löschen?')) return;
+// data-entry-ids="1,2,3" (z.B. ein vorgeplantes Gericht) oder data-entry-id
+function entryIds(btn) {
+    return (btn.dataset.entryIds || btn.dataset.entryId).split(',').map(Number);
+}
+
+async function deleteEntryGlobal(ids) {
+    ids = [].concat(ids);
+    if (!confirm(ids.length > 1 ? ids.length + ' Einträge löschen?' : 'Eintrag löschen?')) return;
     try {
-        const r = await fetch('/api/entry.php', {
-            method: 'DELETE',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ id }),
-        });
-        const d = await r.json();
+        let d = { ok: true };
+        for (const id of ids) {
+            const r = await fetch('/api/entry.php', {
+                method: 'DELETE',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ id }),
+            });
+            d = await r.json();
+            if (!d.ok) break;
+        }
         if (d.ok) {
-            document.getElementById('entry-' + id)?.remove();
+            ids.forEach(id => document.getElementById('entry-' + id)?.remove());
             closeAllSwipes();
             setTimeout(() => location.reload(), 400);
         }

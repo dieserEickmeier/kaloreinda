@@ -202,3 +202,31 @@ function miniRing(float $anteil, bool $over, int $size = 30): string {
 function wochentagKurz(string $datum): string {
     return ['So','Mo','Di','Mi','Do','Fr','Sa'][(int)date('w', strtotime($datum))];
 }
+
+/** Langes Datum „Donnerstag, 22. Oktober“ für ein Y-m-d-Datum. */
+function datumLang(string $datum): string {
+    $t = strtotime($datum);
+    return ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'][(int)date('w', $t)]
+        . ', ' . date('j', $t) . '. '
+        . ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'][(int)date('n', $t) - 1];
+}
+
+/** Gewählter Buchungstag aus der URL (?tag=morgen) – sonst heute. */
+function buchungsTagMorgen(): bool {
+    return ($_GET['tag'] ?? '') === 'morgen';
+}
+
+/**
+ * Umschalter „Heute | Morgen“ für Erfassen und Gerichte: auf welchen Tag
+ * Einträge gebucht werden (Logik in app.js, setBuchungsTag()). Vorgeplante
+ * Einträge sind ganz normale Einträge mit dem Datum von morgen – sie zählen
+ * erst morgen und stehen bis dahin in der Karte „Morgen“ auf „Heute“.
+ */
+function renderTagSwitch(bool $morgen): void {
+    $m = date('Y-m-d', strtotime('+1 day')); ?>
+<div class="seg tag-seg" id="tagSeg" data-tag="<?= $morgen ? 'morgen' : 'heute' ?>" role="tablist" aria-label="Eintragen für">
+    <button type="button" role="tab" data-tag="heute" class="<?= $morgen ? '' : 'active' ?>">Heute <small><?= wochentagKurz(date('Y-m-d')) ?> <?= date('j.') ?></small></button>
+    <button type="button" role="tab" data-tag="morgen" class="<?= $morgen ? 'active' : '' ?>"><i class="bi bi-calendar-plus"></i> Morgen <small><?= wochentagKurz($m) ?> <?= date('j.', strtotime($m)) ?></small></button>
+</div>
+<p class="tag-hint" id="tagHint" <?= $morgen ? '' : 'hidden' ?>>Wird für <b><?= datumLang($m) ?></b> vorgeplant und zählt erst morgen.</p>
+<?php }

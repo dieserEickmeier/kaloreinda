@@ -3,6 +3,7 @@ require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/layout.php';
+require_once __DIR__ . '/includes/ui.php';
 $currentUser = requireLogin();
 $userId = $currentUser['id'];
 renderHeader('Gerichte', 'log');
@@ -12,6 +13,11 @@ renderHeader('Gerichte', 'log');
     '<button type="button" onclick="openImportModal()" class="icon-btn" aria-label="Gericht importieren"><i class="bi bi-box-arrow-in-down"></i></button>'
   . '<button type="button" onclick="openGerichtModal()" class="icon-btn icon-btn--accent" aria-label="Neues Gericht"><i class="bi bi-plus-lg"></i></button>',
     '', '/log.php'); ?>
+<?php renderTagSwitch(buchungsTagMorgen()); ?>
+<script>
+// Zurück zu „Erfassen“ behält den gewählten Tag (app.js, setBuchungsTag)
+document.querySelector('.page-header > a.icon-btn')?.setAttribute('data-tag-link', '');
+</script>
 
 <!-- ── Gerichtsliste ─────────────────────────────────────────── -->
 <div id="gerichteList" class="list-tile" style="margin-top:.35rem;">
@@ -562,7 +568,7 @@ document.getElementById('gerichtEintragenModal').addEventListener('click', funct
 document.getElementById('btnGerichtEintragen').addEventListener('click', async () => {
     if (!_currentGericht) return;
     const val   = parseFloat(document.getElementById('gerichtEintragenPortionen').value) || 1;
-    const datum = heuteISO();
+    const datum = buchungsDatum();
     const payload = { gericht_id: _currentGericht.id, datum };
     if (_gerichtModus === 'gramm') payload.menge_g = val;
     else                           payload.portionen = val;
@@ -574,8 +580,8 @@ document.getElementById('btnGerichtEintragen').addEventListener('click', async (
     const d = await r.json();
     closeGerichtEintragenModal();
     if (d.ok) {
-        showToast(`Gericht eingetragen (${d.eingetragen} Zutaten)`);
-        setTimeout(() => { location.href = '/'; }, 800);
+        showToast(istMorgen() ? `Für morgen eingetragen (${d.eingetragen} Zutaten)` : `Gericht eingetragen (${d.eingetragen} Zutaten)`);
+        nachBuchung(800);
     } else showToast('Fehler: ' + (d.error || 'Unbekannt'));
 });
 
