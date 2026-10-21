@@ -6,14 +6,14 @@ require_once __DIR__ . '/includes/layout.php';
 require_once __DIR__ . '/includes/ui.php';
 $currentUser = requireLogin();
 $userId = $currentUser['id'];
-renderHeader('Gerichte', 'log');
+renderHeader('Gerichte', 'gerichte');
 ?>
 
 <?php renderPageHeader('Gerichte',
     '<button type="button" onclick="openImportModal()" class="icon-btn" aria-label="Gericht importieren"><i class="bi bi-box-arrow-in-down"></i></button>'
   . '<button type="button" onclick="openGerichtModal()" class="icon-btn icon-btn--accent" aria-label="Neues Gericht"><i class="bi bi-plus-lg"></i></button>',
     '', '/log.php'); ?>
-<?php renderTagSwitch(buchungsTagMorgen()); ?>
+<?php renderTagSwitch(buchungsTag()); ?>
 <script>
 // Zurück zu „Erfassen“ behält den gewählten Tag (app.js, setBuchungsTag)
 document.querySelector('.page-header > a.icon-btn')?.setAttribute('data-tag-link', '');
@@ -875,4 +875,4 @@ loadGerichte();
 restorePickFlow();
 </script>
 
-<?php renderFooter('log'); ?>
+<?php renderFooter('gerichte'); ?>

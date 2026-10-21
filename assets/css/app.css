@@ -293,8 +293,17 @@ a { color: var(--accent); }
 .week-strip .ws-track { fill: none; stroke: var(--surface2); stroke-width: 4; }
 .week-strip .ws-bar   { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round; }
 .week-strip .ws-bar.over { stroke: var(--danger); }
-.week-strip .today { color: var(--accent); }
+.week-strip .today { color: var(--text); }
+.week-strip .sel   { color: var(--accent); background: var(--surface); }
 .week-strip a:active { background: var(--surface); }
+
+/* Kalender-Knopf: natives Datumsfeld unsichtbar darüber (iOS öffnet den Wähler) */
+.date-pick { position: relative; overflow: hidden; cursor: pointer; }
+.date-pick input {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; border: 0; padding: 0; margin: 0; cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+}
 
 /* ── Hero: große Zahl + Balken ───────────────────────────────────── */
 .hero { padding: 1rem 1.2rem 0; }

@@ -8,21 +8,27 @@ require_once __DIR__ . '/includes/ui.php';
 $currentUser = requireLogin();
 $userId = $currentUser['id'];
 
-$heute = date('Y-m-d');
-$db    = db();
+$heute  = date('Y-m-d');
+$morgen = date('Y-m-d', strtotime('+1 day'));
+$db     = db();
+
+// Angezeigter Tag: ?datum=Y-m-d (Tagesauswahl oben, höchstens morgen), sonst heute.
+// Die Seite ist für jeden Tag dieselbe „Heute“-Ansicht.
+$tag      = gueltigesDatum($_GET['datum'] ?? '') && $_GET['datum'] <= $morgen ? $_GET['datum'] : $heute;
+$istHeute = $tag === $heute;
 
 // ─── Query 1: Profil + letztes Gewicht + Tagesziel + Aktivität (1 Query) ─────
 $stmt = $db->prepare("
     SELECT
         p.*,
-        (SELECT kg   FROM gewicht       WHERE user_id = ? ORDER BY datum DESC, id DESC LIMIT 1) AS aktuelles_kg,
+        (SELECT kg   FROM gewicht       WHERE user_id = ? AND datum <= ? ORDER BY datum DESC, id DESC LIMIT 1) AS aktuelles_kg,
         (SELECT kcal_ziel FROM tagesziele WHERE user_id = ? AND datum = ? LIMIT 1)              AS manuelles_ziel,
         (SELECT COALESCE(SUM(kcal),0) FROM aktivitaet_log WHERE user_id = ? AND datum = ?)     AS aktiv_kcal
     FROM (SELECT 1) AS dummy
     LEFT JOIN profil p ON p.user_id = ?
     LIMIT 1
 ");
-$stmt->bind_param('iisisi', $userId, $userId, $heute, $userId, $heute, $userId);
+$stmt->bind_param('isisisi', $userId, $tag, $userId, $tag, $userId, $tag, $userId);
 $stmt->execute();
 $row = $stmt->get_result()->fetch_assoc();
 
@@ -44,9 +50,9 @@ if ($grundumsatzKcal && !$manuellesZiel) {
 }
 $zielMitAktiv = $ziel + $aktivKcal;
 
-// ─── Query 2: Einträge heute ─────────────────────────────────────────────────
+// ─── Query 2: Einträge des Tages ──────────────────────────────────────────────
 $stmt = $db->prepare("SELECT e.id, e.name, e.menge_g, e.kcal, e.eiweiss, e.fett, e.kh, e.gericht_id, e.produkt_id, e.erstellt_am, p.quelle FROM eintraege e LEFT JOIN produkte p ON p.id = e.produkt_id WHERE e.datum = ? AND e.user_id = ? ORDER BY e.erstellt_am DESC, e.id DESC");
-$stmt->bind_param('si', $heute, $userId);
+$stmt->bind_param('si', $tag, $userId);
 $stmt->execute();
 $eintraege = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
@@ -94,13 +100,15 @@ $zielFett    = $makros['fett'];
 $zielKh      = $makros['kh'];
 $zeigeMakros = (int)($profil['makros_anzeigen'] ?? 1);
 
-// ─── Wochenstreifen: die letzten 6 Tage + heute ──────────────────────────────
-$wocheVon   = date('Y-m-d', strtotime('-6 day'));
-$wocheTage  = ladeTageswerte($db, $userId, $profil, $wocheVon, date('Y-m-d', strtotime('-1 day')));
+// ─── Tagesauswahl: 7 Tage – normal die letzten 6 + heute; ältere Tage (über den
+// Kalender gewählt) stehen etwa in der Mitte, morgen am rechten Rand ──────────
+$wocheBis  = $tag > $heute ? $tag
+           : ($tag >= date('Y-m-d', strtotime('-6 day')) ? $heute : min($heute, date('Y-m-d', strtotime($tag . ' +3 day'))));
+$wocheTage = ladeTageswerte($db, $userId, $profil, date('Y-m-d', strtotime($wocheBis . ' -6 day')), $wocheBis);
 
-// ─── Gewicht: Trend (über die gesamte Historie) der letzten 30 Tage ──────────
-$von30    = date('Y-m-d', strtotime('-30 day'));
-$gew30    = array_values(array_filter(gewichtsTrend($db, $userId), fn($g) => $g['datum'] >= $von30));
+// ─── Gewicht: Trend (über die gesamte Historie) der 30 Tage bis zum Tag ───────
+$von30    = date('Y-m-d', strtotime($tag . ' -30 day'));
+$gew30    = array_values(array_filter(gewichtsTrend($db, $userId), fn($g) => $g['datum'] >= $von30 && $g['datum'] <= $tag));
 $gewTrend = array_column($gew30, 'trend');
 // y-Bereich wie im Profil-Chart (gewogene Werte + Rand), damit die Kurve
 // dieselbe Form hat und kleine Trendschwankungen nicht überzeichnet werden
@@ -111,9 +119,9 @@ if ($gew30) {
     $kgMin -= $kgPad; $kgMax += $kgPad;
 }
 
-// ─── Aktivitäten heute ───────────────────────────────────────────────────────
+// ─── Aktivitäten des Tages ───────────────────────────────────────────────────
 $stmt = $db->prepare("SELECT bezeichnung FROM aktivitaet_log WHERE user_id = ? AND datum = ? ORDER BY erstellt_am");
-$stmt->bind_param('is', $userId, $heute);
+$stmt->bind_param('is', $userId, $tag);
 $stmt->execute();
 $aktivNamen = array_unique(array_column($stmt->get_result()->fetch_all(MYSQLI_ASSOC), 'bezeichnung'));
 
@@ -137,25 +145,27 @@ foreach ($anzeige as $idx => $g) {
 }
 usort($zeitleiste, fn($a, $b) => strcmp($b['zeit'], $a['zeit']));
 
-// ─── Morgen: schon vorgeplante Einträge ──────────────────────────────────────
+// ─── Morgen: schon vorgeplante Einträge (nur in der Ansicht von heute) ────────
 // Ganz normale Einträge mit dem Datum von morgen (Erfassen → „Morgen“). Ziel
 // wie bei jedem Tag, nur ohne Aktivität – die kommt erst morgen dazu.
-$morgen = date('Y-m-d', strtotime('+1 day'));
+$plan = [];   // Gerichte (alle Zutaten einer Buchung) als eine Zeile
+if ($istHeute) {
 $stmt = $db->prepare("SELECT e.id, e.name, e.menge_g, e.kcal, e.gericht_id, e.produkt_id, e.erstellt_am, p.quelle FROM eintraege e LEFT JOIN produkte p ON p.id = e.produkt_id WHERE e.datum = ? AND e.user_id = ? ORDER BY e.erstellt_am, e.id");
 $stmt->bind_param('si', $morgen, $userId);
 $stmt->execute();
-$plan = [];   // Gerichte (alle Zutaten einer Buchung) als eine Zeile
 foreach ($stmt->get_result()->fetch_all(MYSQLI_ASSOC) as $e) {
     $key = $e['gericht_id'] ? 'g' . $e['gericht_id'] . '-' . $e['erstellt_am'] : 'e' . $e['id'];
     $plan[$key][] = $e;
+}
 }
 $planKcal  = array_sum(array_map(fn($g) => array_sum(array_column($g, 'kcal')), $plan));
 $planZiel  = $plan ? ladeTageswerte($db, $userId, $profil ?: [], $morgen, $morgen)[$morgen]['basisZiel'] : 0;
 $planRest  = $planZiel - $planKcal;
 
-$wtLang   = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'][(int)date('w')];
-$monate   = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
-$datumLang = $wtLang . ', ' . date('j') . '. ' . $monate[(int)date('n') - 1];
+// Überschrift: Heute / Gestern / Morgen, sonst der Wochentag
+$gestern = date('Y-m-d', strtotime('-1 day'));
+$titel   = $istHeute ? 'Heute' : ($tag === $gestern ? 'Gestern' : ($tag === $morgen ? 'Morgen' : explode(',', datumLang($tag))[0]));
+$datumLang = datumLang($tag);
 
 renderHeader('Heute', 'home');
 
@@ -183,33 +193,39 @@ function uhrzeit(string $ts): string { return date('H:i', strtotime($ts)); }
 
 /** Uhrzeit in der Zeitleiste – vorgeplante Einträge (gestern angelegt) mit Kalender statt Uhrzeit. */
 function zeitZelle(string $ts): string {
-    return date('Y-m-d', strtotime($ts)) < date('Y-m-d')
+    global $tag;
+    return date('Y-m-d', strtotime($ts)) < $tag
         ? '<i class="bi bi-calendar-check" title="Vorgeplant" aria-label="Vorgeplant"></i>'
         : uhrzeit($ts);
 }
 ?>
 
-<?php renderPageHeader('Heute',
-    '<a href="/history.php" class="icon-btn" aria-label="Verlauf"><i class="bi bi-calendar3"></i></a>',
+<?php renderPageHeader($titel,
+    ($istHeute ? '' : '<a href="/index.php" class="icon-btn" aria-label="Zurück zu heute"><i class="bi bi-arrow-counterclockwise"></i></a>')
+  . '<label class="icon-btn date-pick" aria-label="Tag wählen"><i class="bi bi-calendar3"></i>'
+  . '<input type="date" id="tagWahl" value="' . $tag . '" max="' . $morgen . '"></label>',
     $datumLang); ?>
 
-<!-- ── Wochenstreifen ──────────────────────────────────────────── -->
-<nav class="week-strip" id="weekStrip" aria-label="Letzte 7 Tage">
-    <?php foreach ($wocheTage as $t): ?>
-    <a href="/history.php#day-<?= $t['datum'] ?>" aria-label="<?= wochentagKurz($t['datum']) ?>: <?= fmtZahl($t['kcal']) ?> von <?= fmtZahl($t['ziel']) ?> kcal">
-        <?= miniRing($t['ziel'] > 0 ? $t['kcal'] / $t['ziel'] : 0, !$t['leer'] && $t['uebrig'] < 0) ?>
-        <?= wochentagKurz($t['datum']) ?>
+<!-- ── Tagesauswahl ────────────────────────────────────────────── -->
+<nav class="week-strip" id="weekStrip" aria-label="Tag wählen">
+    <?php foreach ($wocheTage as $t):
+        $d = $t['datum'];
+        // gewählter Tag: Werte der Seite (aktuelles Gewicht wie im Hero)
+        [$k, $z] = $d === $tag ? [$sumKcal, $zielMitAktiv] : [$t['kcal'], $t['ziel']];
+    ?>
+    <a href="<?= $d === $heute ? '/index.php' : '/index.php?datum=' . $d ?>"
+       class="<?= $d === $tag ? 'sel' : '' ?><?= $d === $heute ? ' today' : '' ?>"
+       <?= $d === $tag ? 'aria-current="date"' : '' ?>
+       aria-label="<?= datumLang($d) ?>: <?= fmtZahl($k) ?> von <?= fmtZahl($z) ?> kcal">
+        <?= miniRing($z > 0 ? $k / $z : 0, $k > $z) ?>
+        <?= wochentagKurz($d) ?>
     </a>
     <?php endforeach; ?>
-    <div class="today" aria-label="Heute">
-        <?= miniRing($zielMitAktiv > 0 ? $sumKcal / $zielMitAktiv : 0, $rest < 0) ?>
-        <?= wochentagKurz($heute) ?>
-    </div>
 </nav>
 
 <!-- ── Hero: übrig ─────────────────────────────────────────────── -->
-<section class="hero" id="kcalRingWrap" data-aktiv-kcal="<?= $aktivKcal ?>">
-    <div class="big-label"><?= $rest >= 0 ? 'Noch übrig' : 'Über dem Ziel' ?></div>
+<section class="hero" id="kcalRingWrap" data-aktiv-kcal="<?= $aktivKcal ?>" data-datum="<?= $tag ?>">
+    <div class="big-label"><?= $rest < 0 ? 'Über dem Ziel' : ($tag < $heute ? 'Übrig' : 'Noch übrig') ?></div>
     <div class="big-num<?= $rest < 0 ? ' over' : '' ?>"><?= fmtZahl(abs($rest)) ?><span>kcal</span></div>
     <div class="pbar" role="img" aria-label="<?= fmtZahl($sumKcal) ?> von <?= fmtZahl($zielMitAktiv) ?> kcal gegessen">
         <i class="pb-eaten" style="width:<?= round($pbEaten, 1) ?>%"></i>
@@ -249,7 +265,7 @@ function zeitZelle(string $ts): string {
     <a href="/profil.php#aktivitaet" class="tile tile--link">
         <div class="tile__label"><span>Aktivität</span><i class="bi bi-fire text-accent"></i></div>
         <span class="tile__val"><?= fmtZahl($aktivKcal) ?><small> kcal</small></span>
-        <div class="tile__sub text-truncate"><?= $aktivNamen ? htmlspecialchars(implode(' · ', $aktivNamen)) : 'Noch keine heute' ?></div>
+        <div class="tile__sub text-truncate"><?= $aktivNamen ? htmlspecialchars(implode(' · ', $aktivNamen)) : ($istHeute ? 'Noch keine heute' : 'Keine') ?></div>
     </a>
 
     <?php if ($gewTrend):
@@ -285,11 +301,15 @@ function zeitZelle(string $ts): string {
 <?php if (!$hatEintraege): ?>
 <div class="empty-state">
     <i class="bi bi-egg-fried"></i>
+    <?php if ($istHeute): ?>
     <p>Noch nichts geloggt.</p>
     <div class="btn-row">
         <button type="button" class="scan-btn" onclick="zxingStart()"><i class="bi bi-upc-scan"></i>Scannen</button>
         <a href="/log.php?focus=search" class="scan-btn secondary"><i class="bi bi-search"></i>Suchen</a>
     </div>
+    <?php else: ?>
+    <p><?= $tag > $heute ? 'Für morgen noch nichts geplant.' : 'An diesem Tag nichts geloggt.' ?></p>
+    <?php endif; ?>
 </div>
 <?php else: ?>
 <div class="section-label"><span>Einträge</span><b class="num"><?= count($zeitleiste) ?> · <?= fmtZahl($sumKcal) ?> kcal</b></div>
@@ -370,8 +390,16 @@ function zeitZelle(string $ts): string {
 </div>
 <?php endif; ?>
 
+<!-- ── Anderer Tag: nachtragen bzw. für morgen eintragen ─────────── -->
+<?php if (!$istHeute): ?>
+<a href="<?= erfassenLink($tag) ?>" class="plan-cta">
+    <i class="bi <?= $tag > $heute ? 'bi-calendar-plus' : 'bi-clock-history' ?>"></i>
+    <span><b><?= $tag > $heute ? 'Für morgen eintragen' : 'Nachtragen' ?></b><small>Einträge für <?= $datumLang ?></small></span>
+    <i class="bi bi-chevron-right"></i>
+</a>
+
 <!-- ── Morgen: vorgeplante Einträge ────────────────────────────── -->
-<?php if (!$plan): ?>
+<?php elseif (!$plan): ?>
 <a href="/log.php?tag=morgen" class="plan-cta" id="morgen">
     <i class="bi bi-calendar-plus"></i>
     <span><b>Morgen vorplanen</b><small>Schon heute für <?= datumLang($morgen) ?> eintragen</small></span>
@@ -435,6 +463,13 @@ function zeitZelle(string $ts): string {
 </div>
 
 <script>
+// Kalender in der Kopfzeile: beliebigen Tag wählen (natives Datumsfeld liegt
+// unsichtbar über dem Knopf, damit iOS den eigenen Datumswähler öffnet)
+document.getElementById('tagWahl').addEventListener('change', e => {
+    const d = e.target.value;
+    if (d) location.href = d === heuteISO() ? '/index.php' : '/index.php?datum=' + d;
+});
+
 function toggleGroup(idx) {
     const subs    = document.getElementById('subs-' + idx);
     const chevron = document.getElementById('chevron-' + idx);

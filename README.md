@@ -91,10 +91,9 @@ chmod 600 includes/config.php
 ```
 kalorientracker/
 ├── start.php          # Einstieg (PWA start_url) → in den Einstellungen gewählte Startseite
-├── index.php          # Heute: Tagesbilanz, Einträge, Aktivität
+├── index.php          # Heute: Tagesbilanz, Einträge, Aktivität – für jeden Tag (?datum=)
 ├── log.php            # Erfassen: Barcode, Nährwert-Scan, Suche, schnell/manuell, Gerichte
 ├── gerichte.php       # Gerichte (Rezepte aus Zutaten) anlegen und bearbeiten
-├── history.php        # Verlauf: Charts und Kennzahlen (bis 365 Tage), letzte 7 Tage
 ├── profil.php         # Gewicht und Aktivität
 ├── einstellungen.php  # Profil-/BMR-Daten, Startseite, Anzeige-Optionen
 ├── oobe.php           # Ersteinrichtung nach dem ersten Login
@@ -154,7 +153,10 @@ kalorientracker/
 - **Einträge bearbeiten** – Menge nachträglich ändern, Werte werden neu berechnet
 - **Tagesziel** – BMR/TDEE nach Mifflin-St-Jeor mit Aktivitätsfaktor und Defizit,
   Aktivitätskalorien erhöhen das Tagesbudget
-- **Verlauf** – Kalorien pro Tag gegen das Ziel und Gewichtstrend, bis 365 Tage
+- **Tagesauswahl** – oben auf „Heute“ einen der letzten Tage (oder über den Kalender
+  jeden beliebigen) wählen; zeigt dieselbe Ansicht für diesen Tag, mit Nachtragen
+- **Morgen vorplanen** – in Erfassen/Gerichte „Morgen“ wählen; die Einträge stehen bis
+  dahin in der Karte „Morgen“ und zählen erst am Tag selbst
 - **API-Key** – für Kurzbefehle/Smartwatch, Doku unter `api_docs.php`
 - **Pebble** – Ziffernblatt mit Tagesbilanz, Schritte → Aktivitätskalorien
 - **PWA** – Home-Bildschirm-Installation, Quick Actions (Scannen, Suchen,

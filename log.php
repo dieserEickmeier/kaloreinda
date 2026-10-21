@@ -24,12 +24,16 @@ $stmtPf = $db->prepare("SELECT * FROM profil WHERE user_id = ? LIMIT 1");
 $stmtPf->bind_param('i', $userId);
 $stmtPf->execute();
 $profilFull = $stmtPf->get_result()->fetch_assoc() ?: [];
-// – für vorgeplante Einträge (Umschalter „Morgen“) der Rest von morgen: Ziel
-// ohne Aktivität, abzüglich dessen, was für morgen schon eingetragen ist
-$restHeute = $restMorgen = null;
+// – je wählbarem Buchungstag (heute, morgen, ggf. nachzutragender Tag), da
+// der Umschalter oben den Tag wechselt; morgen ohne Aktivität, abzüglich
+// dessen, was dort schon eingetragen ist
+$buchungsTag = buchungsTag();
+$restJeTag   = null;
 if (!$pickMode) {
-    $tw = ladeTageswerte($db, $userId, $profilFull, date('Y-m-d'), date('Y-m-d', strtotime('+1 day')));
-    [$restHeute, $restMorgen] = array_column(array_values($tw), 'uebrig');
+    $morgenD   = date('Y-m-d', strtotime('+1 day'));
+    $restJeTag = array_map(fn($t) => (int)round($t['uebrig']),
+        ladeTageswerte($db, $userId, $profilFull, date('Y-m-d'), $morgenD)
+        + ladeTageswerte($db, $userId, $profilFull, $buchungsTag, $buchungsTag));
 }
 
 renderHeader('Erfassen', 'log');
@@ -41,7 +45,7 @@ renderHeader('Erfassen', 'log');
     <span><i class="bi bi-journal-richtext text-accent me-1"></i> Zutat für Gericht auswählen</span>
     <button type="button" id="btnPickAbbrechen" class="btn-link-muted">Abbrechen</button>
 </div>
-<?php else: renderTagSwitch(buchungsTagMorgen()); endif; ?>
+<?php else: renderTagSwitch($buchungsTag); endif; ?>
 
 <!-- ── Erfassen-Aktionen ───────────────────────────────────────── -->
 <div class="log-actions">
@@ -132,7 +136,7 @@ renderHeader('Erfassen', 'log');
     <div class="pf-kcal">
         <div class="pf-kcal__num" id="geKcalPreview">0</div>
         <div class="pf-kcal__unit">kcal</div>
-        <?php if ($restHeute !== null): ?><div class="pf-kcal__after" id="geAfter">danach<br><b>–</b></div><?php endif; ?>
+        <?php if ($restJeTag !== null): ?><div class="pf-kcal__after" id="geAfter">danach<br><b>–</b></div><?php endif; ?>
     </div>
 
     <div class="pf-macros">
@@ -519,7 +523,7 @@ renderHeader('Erfassen', 'log');
     <div class="pf-kcal">
         <div class="pf-kcal__num" id="kcalPreview">0</div>
         <div class="pf-kcal__unit">kcal</div>
-        <?php if ($restHeute !== null): ?><div class="pf-kcal__after" id="pfAfter">danach<br><b>–</b></div><?php endif; ?>
+        <?php if ($restJeTag !== null): ?><div class="pf-kcal__after" id="pfAfter">danach<br><b>–</b></div><?php endif; ?>
     </div>
 
     <!-- Makro-Ringe pro 100g -->
@@ -738,11 +742,10 @@ function updateKcalPreview() {
 }
 
 // „danach X übrig“ im Sheet – Tagesrest kommt aus PHP (wie auf „Heute“)
-const REST_HEUTE  = <?= $restHeute  === null ? 'null' : (int)round($restHeute) ?>;
-const REST_MORGEN = <?= $restMorgen === null ? 'null' : (int)round($restMorgen) ?>;
+const REST_JE_TAG = <?= $restJeTag === null ? 'null' : json_encode($restJeTag) ?>;
 function updateDanach(elId, kcal) {
     const el = document.getElementById(elId);
-    const rest = istMorgen() ? REST_MORGEN : REST_HEUTE;
+    const rest = REST_JE_TAG?.[buchungsDatum()] ?? null;
     if (!el || rest === null) return;
     const r = rest - kcal;
     const b = el.querySelector('b');

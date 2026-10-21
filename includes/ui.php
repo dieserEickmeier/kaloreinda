@@ -1,6 +1,6 @@
 <?php
 /**
- * Gemeinsame Anzeige- und Berechnungs-Helfer für Heute, Verlauf und Profil.
+ * Gemeinsame Anzeige- und Berechnungs-Helfer für Heute, Erfassen und Profil.
  */
 require_once __DIR__ . '/bmr.php';
 
@@ -12,7 +12,6 @@ function startseiten(): array {
     return [
         'heute'    => ['label' => 'Heute',    'pfad' => '/index.php'],
         'erfassen' => ['label' => 'Erfassen', 'pfad' => '/log.php'],
-        'verlauf'  => ['label' => 'Verlauf',  'pfad' => '/history.php'],
         'gerichte' => ['label' => 'Gerichte', 'pfad' => '/gerichte.php'],
         'profil'   => ['label' => 'Profil',   'pfad' => '/profil.php'],
     ];
@@ -211,9 +210,27 @@ function datumLang(string $datum): string {
         . ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'][(int)date('n', $t) - 1];
 }
 
-/** Gewählter Buchungstag aus der URL (?tag=morgen) – sonst heute. */
-function buchungsTagMorgen(): bool {
-    return ($_GET['tag'] ?? '') === 'morgen';
+/**
+ * Gewählter Buchungstag aus der URL: ?tag=morgen oder ?datum=Y-m-d (Nachtragen
+ * aus der Tagesansicht, höchstens bis morgen) – sonst heute.
+ */
+function buchungsTag(): string {
+    $heute  = date('Y-m-d');
+    $morgen = date('Y-m-d', strtotime('+1 day'));
+    if (($_GET['tag'] ?? '') === 'morgen') return $morgen;
+    $d = $_GET['datum'] ?? '';
+    return gueltigesDatum($d) && $d <= $morgen ? $d : $heute;
+}
+
+/** Y-m-d und ein echtes Kalenderdatum? */
+function gueltigesDatum(string $d): bool {
+    return preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $d, $m) && checkdate((int)$m[2], (int)$m[3], (int)$m[1]);
+}
+
+/** Link zum Erfassen für einen Tag (heute ohne Parameter). */
+function erfassenLink(string $datum, string $seite = '/log.php'): string {
+    if ($datum === date('Y-m-d')) return $seite;
+    return $seite . ($datum === date('Y-m-d', strtotime('+1 day')) ? '?tag=morgen' : '?datum=' . $datum);
 }
 
 /**
@@ -221,12 +238,25 @@ function buchungsTagMorgen(): bool {
  * Einträge gebucht werden (Logik in app.js, setBuchungsTag()). Vorgeplante
  * Einträge sind ganz normale Einträge mit dem Datum von morgen – sie zählen
  * erst morgen und stehen bis dahin in der Karte „Morgen“ auf „Heute“.
+ * Kommt man aus der Tagesansicht eines anderen Tages (?datum=…), steht dieser
+ * Tag als dritte Wahl daneben (Nachtragen).
  */
-function renderTagSwitch(bool $morgen): void {
-    $m = date('Y-m-d', strtotime('+1 day')); ?>
-<div class="seg tag-seg" id="tagSeg" data-tag="<?= $morgen ? 'morgen' : 'heute' ?>" role="tablist" aria-label="Eintragen für">
-    <button type="button" role="tab" data-tag="heute" class="<?= $morgen ? '' : 'active' ?>">Heute <small><?= wochentagKurz(date('Y-m-d')) ?> <?= date('j.') ?></small></button>
-    <button type="button" role="tab" data-tag="morgen" class="<?= $morgen ? 'active' : '' ?>"><i class="bi bi-calendar-plus"></i> Morgen <small><?= wochentagKurz($m) ?> <?= date('j.', strtotime($m)) ?></small></button>
+function renderTagSwitch(string $datum): void {
+    $h = date('Y-m-d');
+    $m = date('Y-m-d', strtotime('+1 day'));
+    $tag = $datum === $h ? 'heute' : ($datum === $m ? 'morgen' : 'datum');
+    // ohne $label (nachzutragender Tag) steht nur das Datum im Knopf
+    $btn = function (string $t, string $d, string $label, string $icon, string $hint) use ($tag) {
+        $kurz = wochentagKurz($d) . ' ' . date('j.', strtotime($d));
+        printf('<button type="button" role="tab" data-tag="%s" data-datum="%s" data-hint="%s" class="%s">%s%s</button>',
+            $t, $d, htmlspecialchars($hint), $t === $tag ? 'active' : '',
+            $icon ? '<i class="bi ' . $icon . '"></i> ' : '', $label ? $label . ' <small>' . $kurz . '</small>' : $kurz);
+    };
+?>
+<div class="seg tag-seg" id="tagSeg" data-tag="<?= $tag ?>" role="tablist" aria-label="Eintragen für">
+    <?php if ($tag === 'datum') $btn('datum', $datum, '', 'bi-clock-history', 'Wird für <b>' . datumLang($datum) . '</b> nachgetragen.'); ?>
+    <?php $btn('heute', $h, 'Heute', '', ''); ?>
+    <?php $btn('morgen', $m, 'Morgen', 'bi-calendar-plus', 'Wird für <b>' . datumLang($m) . '</b> vorgeplant und zählt erst morgen.'); ?>
 </div>
-<p class="tag-hint" id="tagHint" <?= $morgen ? '' : 'hidden' ?>>Wird für <b><?= datumLang($m) ?></b> vorgeplant und zählt erst morgen.</p>
+<p class="tag-hint" id="tagHint" <?= $tag === 'heute' ? 'hidden' : '' ?>></p>
 <?php }

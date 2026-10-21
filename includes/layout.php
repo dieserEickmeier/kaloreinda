@@ -43,7 +43,7 @@ function renderHeader(string $title = APP_NAME, string $activeNav = ''): void {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/space-grotesk@5/index.css">
-    <link rel="stylesheet" href="/assets/css/app.css?v=55">
+    <link rel="stylesheet" href="/assets/css/app.css?v=56">
     <meta name="csrf-token" content="<?= htmlspecialchars(csrfToken()) ?>">
     <script>
     // Hängt den CSRF-Token automatisch an alle schreibenden Requests an die
@@ -95,7 +95,7 @@ function renderFooter(string $activeNav = ''): void {
     global $currentUser;
     $nav = [
         ['href' => '/index.php',    'icon' => 'bi-lightning-charge', 'iconOn' => 'bi-lightning-charge-fill', 'label' => 'Heute',    'key' => 'home'],
-        ['href' => '/history.php',  'icon' => 'bi-graph-up',         'iconOn' => 'bi-graph-up',              'label' => 'Verlauf',  'key' => 'history'],
+        ['href' => '/gerichte.php', 'icon' => 'bi-journal-richtext', 'iconOn' => 'bi-journal-richtext',      'label' => 'Gerichte', 'key' => 'gerichte'],
         ['scan' => true],
         ['href' => '/log.php',      'icon' => 'bi-plus-circle',      'iconOn' => 'bi-plus-circle-fill',      'label' => 'Erfassen', 'key' => 'log'],
         ['href' => '/profil.php',   'icon' => 'bi-person',           'iconOn' => 'bi-person-fill',           'label' => 'Profil',   'key' => 'profil'],
@@ -294,7 +294,7 @@ function renderFooter(string $activeNav = ''): void {
 </nav>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
-<script src="/assets/js/app.js?v=11" defer></script>
+<script src="/assets/js/app.js?v=12" defer></script>
 <script src="/assets/js/scanner.js?v=4" defer></script>
 <script>
 (function() {

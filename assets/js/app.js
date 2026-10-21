@@ -16,41 +16,58 @@ function morgenISO() {
 
 // ── Buchungstag (Erfassen, Gerichte): Umschalter „Heute | Morgen“ ─────────
 // Der Umschalter (#tagSeg, renderTagSwitch() in ui.php) entscheidet, auf
-// welchen Tag Einträge gebucht werden. Der Zustand steht in der URL
-// (?tag=morgen) – so überlebt er ein Neuladen, ein normaler Aufruf von
-// „Erfassen“ startet aber immer bei „Heute“ (kein versehentliches Vorplanen).
-function istMorgen() {
-    return document.getElementById('tagSeg')?.dataset.tag === 'morgen';
+// welchen Tag Einträge gebucht werden: heute, morgen (vorplanen) oder – aus
+// der Tagesansicht eines anderen Tages – genau diesen (nachtragen). Der
+// Zustand steht in der URL (?tag=morgen bzw. ?datum=…) – so überlebt er ein
+// Neuladen, ein normaler Aufruf von „Erfassen“ startet aber immer bei „Heute“.
+function buchungsTag() {
+    return document.getElementById('tagSeg')?.dataset.tag || 'heute';
 }
-function buchungsDatum() { return istMorgen() ? morgenISO() : heuteISO(); }
-// Nach dem Eintragen zurück zu „Heute“ – bei „Morgen“ direkt zur Planungskarte
+function istMorgen() { return buchungsTag() === 'morgen'; }
+function buchungsDatum() {
+    const t = buchungsTag();
+    // heute/morgen erst beim Buchen bestimmen – die Seite kann über Mitternacht offen sein
+    if (t === 'heute')  return heuteISO();
+    if (t === 'morgen') return morgenISO();
+    return document.querySelector('#tagSeg [data-tag="datum"]').dataset.datum;
+}
+// URL-Parameter für den gewählten Tag (für Links und die eigene Adresse)
+function tagParams(u) {
+    u.searchParams.delete('tag'); u.searchParams.delete('datum');
+    const t = buchungsTag();
+    if (t === 'morgen') u.searchParams.set('tag', 'morgen');
+    if (t === 'datum')  u.searchParams.set('datum', buchungsDatum());
+    return u.pathname + u.search + u.hash;
+}
+// Nach dem Eintragen zurück zur Tagesansicht – bei „Morgen“ direkt zur Planungskarte
 function nachBuchung(ms = 900) {
-    setTimeout(() => { location.href = istMorgen() ? '/index.php#morgen' : '/index.php'; }, ms);
+    const t = buchungsTag();
+    const ziel = t === 'morgen' ? '/index.php#morgen'
+               : t === 'datum'  ? '/index.php?datum=' + buchungsDatum() : '/index.php';
+    setTimeout(() => { location.href = ziel; }, ms);
 }
 function buchungsToast(text = '✓ Eingetragen!') {
-    return istMorgen() ? '✓ Für morgen eingetragen' : text;
+    const t = buchungsTag();
+    return t === 'morgen' ? '✓ Für morgen eingetragen' : t === 'datum' ? '✓ Nachgetragen' : text;
 }
 function setBuchungsTag(tag) {
     const seg = document.getElementById('tagSeg');
     if (!seg) return;
     seg.dataset.tag = tag;
+    let hint = '';
     seg.querySelectorAll('[data-tag]').forEach(b => {
         const on = b.dataset.tag === tag;
         b.classList.toggle('active', on);
         b.setAttribute('aria-selected', on ? 'true' : 'false');
+        if (on) hint = b.dataset.hint;
     });
-    const m = tag === 'morgen';
-    document.getElementById('tagHint')?.toggleAttribute('hidden', !m);
-    document.querySelectorAll('.tag-label').forEach(el => { el.textContent = m ? 'Morgen eintragen' : 'Heute eintragen'; });
+    const h = document.getElementById('tagHint');
+    if (h) { h.innerHTML = hint; h.toggleAttribute('hidden', !hint); }
+    const label = tag === 'morgen' ? 'Morgen eintragen' : tag === 'datum' ? 'Nachtragen' : 'Heute eintragen';
+    document.querySelectorAll('.tag-label').forEach(el => { el.textContent = label; });
     // Links zu Erfassen/Gerichte nehmen den Tag mit
-    document.querySelectorAll('a[data-tag-link]').forEach(a => {
-        const u = new URL(a.href, location.href);
-        if (m) u.searchParams.set('tag', 'morgen'); else u.searchParams.delete('tag');
-        a.href = u.pathname + u.search + u.hash;
-    });
-    const u = new URL(location.href);
-    if (m) u.searchParams.set('tag', 'morgen'); else u.searchParams.delete('tag');
-    history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+    document.querySelectorAll('a[data-tag-link]').forEach(a => { a.href = tagParams(new URL(a.href, location.href)); });
+    history.replaceState(history.state, '', tagParams(new URL(location.href)));
 }
 document.addEventListener('DOMContentLoaded', () => {
     const seg = document.getElementById('tagSeg');
@@ -459,7 +476,7 @@ const kcalRingWrap = document.getElementById('kcalRingWrap');
 
 async function refreshHeute() {
     try {
-        const r = await fetch('/index.php', { cache: 'no-store' });
+        const r = await fetch(location.pathname + location.search, { cache: 'no-store' });
         const html = await r.text();
         const doc = new DOMParser().parseFromString(html, 'text/html');
         ['kcalRingWrap', 'makroCard', 'weekStrip'].forEach(id => {
@@ -474,7 +491,7 @@ async function refreshHeute() {
 async function checkAktivKcal() {
     if (!kcalRingWrap) return;
     try {
-        const r = await fetch('/api/activity.php?datum=' + heuteISO(), { cache: 'no-store' });
+        const r = await fetch('/api/activity.php?datum=' + (kcalRingWrap.dataset.datum || heuteISO()), { cache: 'no-store' });
         const d = await r.json();
         if (!d.ok) return;
         const aktuell = parseInt(kcalRingWrap.dataset.aktivKcal || '0', 10);
