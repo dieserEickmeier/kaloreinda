@@ -118,11 +118,11 @@ a { color: var(--accent); }
 }
 /* iOS 27 legt in installierten Web-Apps eine weiche Unschärfe unter die
    Statusleiste (Systemeffekt, per CSS nicht abschaltbar), in die die
-   Kopfzeile hineinragt. Als Home-Bildschirm-App ist der Abstand oben daher
-   kleiner – diese Position wurde auf dem iPhone abgestimmt. Erkennung über
+   Kopfzeile hineinragt. Als Home-Bildschirm-App sitzt sie daher etwas
+   tiefer – diese Position wurde auf dem iPhone abgestimmt. Erkennung über
    display-mode bzw. navigator.standalone (Klasse in layout.php). */
-@media (display-mode: standalone) { .page-header { padding-top: .45rem; } }
-:root.standalone .page-header { padding-top: .45rem; }
+@media (display-mode: standalone) { .page-header { padding-top: 1.325rem; } }
+:root.standalone .page-header { padding-top: 1.325rem; }
 .page-header h1 {
     font-size: 1.6rem;
     font-weight: 700;
