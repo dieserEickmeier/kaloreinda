@@ -17,6 +17,8 @@ function renderPwaMeta(): void {
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Kalorien">
+    <!-- Home-Bildschirm-App erkennen (Fallback zu @media display-mode, app.css) -->
+    <script>if (navigator.standalone) document.documentElement.classList.add('standalone');</script>
     <link rel="icon" type="image/svg+xml" href="/assets/icons/favicon.svg?v=<?= $v('favicon.svg') ?>">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32.png?v=<?= $v('favicon-32.png') ?>">
     <link rel="apple-touch-icon" href="/assets/icons/icon-180.png?v=<?= $v('icon-180.png') ?>">
@@ -43,7 +45,7 @@ function renderHeader(string $title = APP_NAME, string $activeNav = ''): void {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/space-grotesk@5/index.css">
-    <link rel="stylesheet" href="/assets/css/app.css?v=56">
+    <link rel="stylesheet" href="/assets/css/app.css?v=66">
     <meta name="csrf-token" content="<?= htmlspecialchars(csrfToken()) ?>">
     <script>
     // Hängt den CSRF-Token automatisch an alle schreibenden Requests an die
